@@ -1,11 +1,17 @@
 import { NextResponse } from 'next/server';
 import { randomUUID } from 'node:crypto';
 import { getSquareClient, serializeSquare } from '../../../../lib/square';
+import {
+  findBookingByCode,
+  updateBookingByCode,
+} from '../../../../lib/bookings-db';
 
 // POST /api/bookings/collect-balance
-// body: { bookingCode, amountCents, serviceName, customer: { name, email } }
-// Creates a Square Payment Link (Quick Pay) for the remaining balance and
-// returns the hosted checkout URL so the admin can text/email it to the client.
+// body: { bookingCode }
+//
+// Looks up the booking in Postgres, creates a Square Payment Link for the
+// remaining balance, and persists the link fields back to the booking row.
+// The admin UI receives the updated booking and displays the hosted URL.
 export async function POST(request) {
   let body;
   try {
@@ -14,67 +20,89 @@ export async function POST(request) {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
   }
 
-  const { bookingCode, amountCents, serviceName, customer = {} } = body;
-
+  const { bookingCode } = body || {};
   if (!bookingCode || typeof bookingCode !== 'string') {
     return NextResponse.json({ error: 'Missing bookingCode' }, { status: 400 });
   }
-  if (!Number.isInteger(amountCents) || amountCents <= 0) {
-    return NextResponse.json({ error: 'amountCents must be a positive integer' }, { status: 400 });
+
+  const booking = await findBookingByCode(bookingCode);
+  if (!booking) {
+    return NextResponse.json({ error: 'Booking not found' }, { status: 404 });
+  }
+
+  if (booking.balanceStatus === 'paid' || booking.remainingCents <= 0) {
+    return NextResponse.json(
+      { error: 'Booking has no outstanding balance' },
+      { status: 400 },
+    );
   }
 
   const locationId = process.env.NEXT_PUBLIC_SQUARE_LOCATION_ID;
   if (!locationId) {
-    return NextResponse.json({ error: 'Square location not configured' }, { status: 500 });
+    return NextResponse.json(
+      { error: 'Square location not configured' },
+      { status: 500 },
+    );
   }
 
-  try {
-    const client = getSquareClient();
+  const client = getSquareClient();
 
-    const itemName = serviceName
-      ? `${serviceName} — remaining balance`
-      : 'Remaining balance';
-
-    const response = await client.checkout.paymentLinks.create({
-      idempotencyKey: randomUUID(),
-      description: `Balance for booking ${bookingCode}`,
-      quickPay: {
-        name: itemName,
-        priceMoney: {
-          amount: BigInt(amountCents),
-          currency: 'USD',
-        },
-        locationId,
+  const buildRequest = (withEmail) => ({
+    idempotencyKey: randomUUID(),
+    description: `Balance for booking ${booking.code}`,
+    quickPay: {
+      name: `${booking.serviceName} — remaining balance`,
+      priceMoney: {
+        amount: BigInt(booking.remainingCents),
+        currency: 'USD',
       },
-      // paymentNote becomes the `note` field on the resulting Payment so we can match
-      // it back to this booking via the webhook.
-      paymentNote: bookingCode,
-      prePopulatedData: customer.email
-        ? { buyerEmail: customer.email }
-        : undefined,
-    });
+      locationId,
+    },
+    // paymentNote becomes the `note` on the resulting Payment so webhooks can match.
+    paymentNote: booking.code,
+    prePopulatedData:
+      withEmail && booking.customerEmail ? { buyerEmail: booking.customerEmail } : undefined,
+  });
+
+  try {
+    let response;
+    try {
+      response = await client.checkout.paymentLinks.create(buildRequest(true));
+    } catch (err) {
+      // Square rejects certain addresses (e.g. @example.com). Retry without the
+      // prefilled email so the admin still gets a usable link.
+      const squareErrs = err?.errors || err?.body?.errors || [];
+      const emailError = squareErrs.some((e) =>
+        String(e?.detail || '').toLowerCase().includes('email'),
+      );
+      if (emailError) {
+        console.warn('[collect-balance] retrying without prepopulated email');
+        response = await client.checkout.paymentLinks.create(buildRequest(false));
+      } else {
+        throw err;
+      }
+    }
 
     const link = serializeSquare(response.paymentLink);
-
     if (!link?.url) {
       throw new Error('Square did not return a payment link URL');
     }
 
-    return NextResponse.json({
-      ok: true,
-      linkId: link.id,
-      url: link.url,
-      orderId: link.orderId ?? null,
+    const updated = await updateBookingByCode(booking.code, {
+      balanceStatus: 'link_sent',
+      balanceLinkId: link.id,
+      balanceLinkUrl: link.url,
+      balanceOrderId: link.orderId ?? null,
     });
+
+    return NextResponse.json({ ok: true, booking: updated });
   } catch (error) {
     console.error('[square] paymentLinks.create failed', error);
-
     const squareErrors = error?.errors || error?.body?.errors;
     const message =
       (Array.isArray(squareErrors) && squareErrors[0]?.detail) ||
       error?.message ||
       'Could not create payment link';
-
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

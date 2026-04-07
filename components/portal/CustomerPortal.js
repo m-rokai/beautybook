@@ -1,21 +1,28 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { format } from 'date-fns';
 import {
-  findBooking,
-  updateBooking,
+  fetchBooking,
+  patchBooking,
+  fetchTakenSlotsForDate,
   getAvailableDates,
-  getTimeSlotsForDate,
+  getBaseTimeSlots,
   formatDateKey,
   formatDateLabel,
-  seedIfEmpty,
 } from '../../lib/booking-store';
+
+const formatDollars = (cents) => {
+  if (typeof cents !== 'number' || Number.isNaN(cents)) return '$0';
+  return `$${(cents / 100).toFixed(cents % 100 === 0 ? 0 : 2)}`;
+};
 
 export function CustomerPortal({ policies }) {
   const [bookingCode, setBookingCode] = useState('');
   const [appointment, setAppointment] = useState(null);
   const [lookupDone, setLookupDone] = useState(false);
+  const [lookupError, setLookupError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
   const [showReschedule, setShowReschedule] = useState(false);
 
   // reschedule calendar state
@@ -25,24 +32,51 @@ export function CustomerPortal({ policies }) {
   const [selectedTimeId, setSelectedTimeId] = useState('');
 
   useEffect(() => {
-    seedIfEmpty();
-    const available = getAvailableDates(14);
-    setDates(available);
+    setDates(getAvailableDates(14));
   }, []);
 
   useEffect(() => {
     if (!selectedDate) return;
-    const slots = getTimeSlotsForDate(formatDateKey(selectedDate));
-    setTimeSlots(slots);
-    const firstAvailable = slots.find((s) => s.available);
-    setSelectedTimeId(firstAvailable?.id ?? '');
+    let cancelled = false;
+    (async () => {
+      try {
+        const takenIds = await fetchTakenSlotsForDate(formatDateKey(selectedDate));
+        if (cancelled) return;
+        const slots = getBaseTimeSlots().map((slot) => ({
+          ...slot,
+          available: !takenIds.includes(slot.id),
+        }));
+        setTimeSlots(slots);
+        const firstAvailable = slots.find((s) => s.available);
+        setSelectedTimeId(firstAvailable?.id ?? '');
+      } catch (error) {
+        console.error('[portal] availability fetch failed', error);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [selectedDate]);
 
-  const handleLookup = () => {
-    const found = findBooking(bookingCode);
-    setAppointment(found || null);
-    setLookupDone(true);
-    setShowReschedule(false);
+  const handleLookup = async () => {
+    const code = bookingCode.trim();
+    if (!code) return;
+
+    setIsLoading(true);
+    setLookupError('');
+    try {
+      const found = await fetchBooking(code);
+      setAppointment(found);
+      if (!found) setLookupError(`No booking found for "${code}".`);
+    } catch (error) {
+      console.error('[portal] lookup failed', error);
+      setLookupError(error?.message || 'Lookup failed.');
+      setAppointment(null);
+    } finally {
+      setLookupDone(true);
+      setShowReschedule(false);
+      setIsLoading(false);
+    }
   };
 
   const handleKeyDown = (e) => {
@@ -52,32 +86,35 @@ export function CustomerPortal({ policies }) {
     }
   };
 
-  const handleReschedule = () => {
+  const handleReschedule = async () => {
     if (!appointment || !selectedDate || !selectedTimeId) return;
     const slot = timeSlots.find((s) => s.id === selectedTimeId);
     if (!slot) return;
 
-    const updated = updateBooking(appointment.code, {
-      date: formatDateKey(selectedDate),
-      dateLabel: formatDateLabel(selectedDate),
-      timeId: slot.id,
-      timeLabel: slot.label,
-      status: 'rescheduled',
-    });
-
-    setAppointment(updated);
-    setShowReschedule(false);
+    try {
+      const updated = await patchBooking(appointment.code, {
+        scheduledDate: formatDateKey(selectedDate),
+        scheduledTimeId: slot.id,
+        scheduledTimeLabel: slot.label,
+        status: 'rescheduled',
+      });
+      setAppointment(updated);
+      setShowReschedule(false);
+    } catch (error) {
+      console.error('[portal] reschedule failed', error);
+      setLookupError(error?.message || 'Could not reschedule.');
+    }
   };
 
-  const handleCancel = () => {
+  const handleCancel = async () => {
     if (!appointment) return;
-
-    const updated = updateBooking(appointment.code, {
-      status: 'cancelled',
-      feeNotice: 'Late cancellation fee may apply — see policy.',
-    });
-
-    setAppointment(updated);
+    try {
+      const updated = await patchBooking(appointment.code, { status: 'cancelled' });
+      setAppointment(updated);
+    } catch (error) {
+      console.error('[portal] cancel failed', error);
+      setLookupError(error?.message || 'Could not cancel.');
+    }
   };
 
   const statusClass =
@@ -102,18 +139,21 @@ export function CustomerPortal({ policies }) {
             value={bookingCode}
             onChange={(e) => setBookingCode(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="e.g. AL-SAMPLE1"
+            placeholder="e.g. AL-AB3C9"
           />
         </div>
 
-        <button type="button" className="button button-primary" onClick={handleLookup}>
-          Look Up Booking
+        <button
+          type="button"
+          className="button button-primary"
+          onClick={handleLookup}
+          disabled={isLoading}
+        >
+          {isLoading ? 'Looking up…' : 'Look Up Booking'}
         </button>
 
-        {lookupDone && !appointment && (
-          <div className="empty-state">
-            No booking found for "{bookingCode}". Double-check your code and try again.
-          </div>
+        {lookupDone && lookupError && (
+          <div className="empty-state">{lookupError}</div>
         )}
 
         {appointment && (
@@ -121,24 +161,38 @@ export function CustomerPortal({ policies }) {
             <div className="note-card">
               <div className="appointment-meta">
                 <div>
-                  <strong>{appointment.service}</strong>
-                  <p>{appointment.customer}</p>
+                  <strong>{appointment.serviceName}</strong>
+                  <p>{appointment.customerName}</p>
                 </div>
                 <span className={`status-pill ${statusClass}`}>
                   {appointment.status}
                 </span>
               </div>
               <ul className="list-tight" style={{ marginTop: 12 }}>
-                <li>Date: {appointment.dateLabel}</li>
-                <li>Time: {appointment.timeLabel}</li>
-                <li>Email: {appointment.email}</li>
-                <li>Payment: {appointment.paymentIntent === 'full' ? 'Paid in full' : 'Deposit captured'} ({appointment.chargeToday})</li>
+                <li>Date: {appointment.scheduledDate}</li>
+                <li>Time: {appointment.scheduledTimeLabel}</li>
+                <li>Email: {appointment.customerEmail}</li>
+                <li>
+                  Payment:{' '}
+                  {appointment.paymentIntent === 'full'
+                    ? 'Paid in full'
+                    : 'Deposit captured'}{' '}
+                  ({formatDollars(appointment.depositCents)})
+                </li>
+                {appointment.remainingCents > 0 && appointment.balanceStatus !== 'paid' && (
+                  <li>
+                    Balance owed: {formatDollars(appointment.remainingCents)}
+                    {appointment.balanceLinkUrl && (
+                      <>
+                        {' — '}
+                        <a href={appointment.balanceLinkUrl} target="_blank" rel="noreferrer">
+                          pay now
+                        </a>
+                      </>
+                    )}
+                  </li>
+                )}
               </ul>
-              {appointment.feeNotice && (
-                <p style={{ marginTop: 12, color: 'var(--warning)', fontWeight: 500, fontSize: '0.9rem' }}>
-                  {appointment.feeNotice}
-                </p>
-              )}
             </div>
 
             {appointment.status !== 'cancelled' && (
@@ -203,7 +257,11 @@ export function CustomerPortal({ policies }) {
                       <button type="button" className="button button-primary" onClick={handleReschedule}>
                         Confirm Reschedule
                       </button>
-                      <button type="button" className="button button-secondary" onClick={() => setShowReschedule(false)}>
+                      <button
+                        type="button"
+                        className="button button-secondary"
+                        onClick={() => setShowReschedule(false)}
+                      >
                         Never mind
                       </button>
                     </div>
@@ -231,10 +289,8 @@ export function CustomerPortal({ policies }) {
         </div>
 
         <div className="note-card" style={{ marginTop: 8 }}>
-          <strong>Sample codes to try</strong>
-          <p>
-            AL-SAMPLE1, AL-SAMPLE2, AL-SAMPLE3 — or book an appointment to get your own code.
-          </p>
+          <strong>Lost your code?</strong>
+          <p>It's on the confirmation shown after booking — starts with AL-. If you can't find it, reach out and we'll look it up.</p>
         </div>
       </aside>
     </section>

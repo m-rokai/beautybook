@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { getBookings, updateBooking, seedIfEmpty } from '../../lib/booking-store';
+import { fetchBookings, patchBooking, requestBalanceLink } from '../../lib/booking-store';
 
 const formatDollars = (cents) => {
   if (typeof cents !== 'number' || Number.isNaN(cents)) return '$0';
@@ -10,16 +10,38 @@ const formatDollars = (cents) => {
 
 export function AdminDashboard({ stats, revenue, customers, automations }) {
   const [bookings, setBookings] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [selectedFilter, setSelectedFilter] = useState('all');
   const [balanceState, setBalanceState] = useState({}); // { [code]: 'loading' | 'error' | null }
   const [balanceError, setBalanceError] = useState({}); // { [code]: string }
 
+  const refreshBookings = async () => {
+    try {
+      const rows = await fetchBookings();
+      setBookings(rows);
+      setLoadError('');
+    } catch (error) {
+      console.error('[admin] load bookings failed', error);
+      setLoadError(error?.message || 'Failed to load bookings');
+    }
+  };
+
   useEffect(() => {
-    seedIfEmpty();
-    setBookings(getBookings());
+    let cancelled = false;
+    (async () => {
+      await refreshBookings();
+      if (!cancelled) setLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  const refreshBookings = () => setBookings(getBookings());
+  const replaceBookingInState = (updated) => {
+    if (!updated) return;
+    setBookings((current) => current.map((b) => (b.code === updated.code ? updated : b)));
+  };
 
   const handleCollectBalance = async (booking) => {
     if (!booking?.remainingCents || booking.remainingCents <= 0) return;
@@ -28,29 +50,8 @@ export function AdminDashboard({ stats, revenue, customers, automations }) {
     setBalanceError((s) => ({ ...s, [booking.code]: '' }));
 
     try {
-      const res = await fetch('/api/bookings/collect-balance', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          bookingCode: booking.code,
-          amountCents: booking.remainingCents,
-          serviceName: booking.service,
-          customer: { name: booking.customer, email: booking.email },
-        }),
-      });
-
-      const payload = await res.json();
-      if (!res.ok || !payload.ok) {
-        throw new Error(payload.error || 'Failed to create payment link');
-      }
-
-      updateBooking(booking.code, {
-        balanceStatus: 'link_sent',
-        balanceLinkId: payload.linkId,
-        balanceLinkUrl: payload.url,
-        balanceOrderId: payload.orderId,
-      });
-      refreshBookings();
+      const updated = await requestBalanceLink(booking.code);
+      replaceBookingInState(updated);
       setBalanceState((s) => ({ ...s, [booking.code]: null }));
     } catch (error) {
       console.error('[admin] collect balance failed', error);
@@ -72,9 +73,13 @@ export function AdminDashboard({ stats, revenue, customers, automations }) {
     return bookings.filter((b) => b.status === selectedFilter);
   }, [bookings, selectedFilter]);
 
-  const handleStatusChange = (code, status) => {
-    updateBooking(code, { status });
-    refreshBookings();
+  const handleStatusChange = async (code, status) => {
+    try {
+      const updated = await patchBooking(code, { status });
+      replaceBookingInState(updated);
+    } catch (error) {
+      console.error('[admin] status change failed', error);
+    }
   };
 
   const bookingCounts = useMemo(() => {
@@ -98,11 +103,13 @@ export function AdminDashboard({ stats, revenue, customers, automations }) {
           ))}
         </div>
 
-        {/* ── Appointment board — reads from localStorage ── */}
+        {/* ── Appointment board — live from Postgres ── */}
         <div className="card">
           <div className="dashboard-toolbar">
             <div>
-              <span className="eyebrow">{bookings.length} bookings</span>
+              <span className="eyebrow">
+                {loading ? 'Loading…' : `${bookings.length} bookings`}
+              </span>
               <h2>Appointments</h2>
             </div>
 
@@ -129,7 +136,10 @@ export function AdminDashboard({ stats, revenue, customers, automations }) {
               <span>Status</span>
             </div>
 
-            {filteredBookings.length === 0 && (
+            {loadError && (
+              <div className="empty-state">Error loading bookings: {loadError}</div>
+            )}
+            {!loading && !loadError && filteredBookings.length === 0 && (
               <div className="empty-state">
                 No {selectedFilter === 'all' ? '' : selectedFilter} bookings yet.
               </div>
@@ -145,13 +155,13 @@ export function AdminDashboard({ stats, revenue, customers, automations }) {
               return (
                 <div key={booking.code} className="table-row">
                   <div>
-                    <strong>{booking.customer}</strong>
-                    <p>{booking.email}</p>
+                    <strong>{booking.customerName}</strong>
+                    <p>{booking.customerEmail}</p>
                     <p className="muted" style={{ fontSize: '0.78rem' }}>{booking.code}</p>
                   </div>
                   <div>
-                    <strong>{booking.service}</strong>
-                    <p>Deposit {booking.chargeToday}</p>
+                    <strong>{booking.serviceName}</strong>
+                    <p>Deposit {formatDollars(booking.depositCents)}</p>
                     {hasBalance && !balanceIsPaid && (
                       <p className="muted" style={{ fontSize: '0.82rem' }}>
                         Balance owed: <strong>{formatDollars(booking.remainingCents)}</strong>
@@ -162,8 +172,8 @@ export function AdminDashboard({ stats, revenue, customers, automations }) {
                     )}
                   </div>
                   <div>
-                    <strong>{booking.timeLabel}</strong>
-                    <p>{booking.dateLabel}</p>
+                    <strong>{booking.scheduledTimeLabel}</strong>
+                    <p>{booking.scheduledDate}</p>
                   </div>
                   <div className="stack">
                     <span

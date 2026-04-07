@@ -4,12 +4,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { format } from 'date-fns';
 import {
   getAvailableDates,
-  getTimeSlotsForDate,
+  getBaseTimeSlots,
+  fetchTakenSlotsForDate,
   formatDateKey,
   formatDateLabel,
-  generateCode,
-  saveBooking,
-  seedIfEmpty,
 } from '../../lib/booking-store';
 
 const initialCustomer = {
@@ -77,18 +75,37 @@ export function BookingExperience({ serviceCategories, addOns, policies }) {
   const chargeCents = chargeDollars * 100;
 
   useEffect(() => {
-    seedIfEmpty();
     const available = getAvailableDates(14);
     setDates(available);
     if (available.length > 0) setSelectedDate(available[0]);
   }, []);
 
+  // Fetch taken slots for the selected date and compute availability.
   useEffect(() => {
     if (!selectedDate) return;
-    const slots = getTimeSlotsForDate(formatDateKey(selectedDate));
-    setTimeSlots(slots);
-    const firstAvailable = slots.find((s) => s.available);
-    setSelectedTimeId(firstAvailable?.id ?? '');
+    let cancelled = false;
+    (async () => {
+      try {
+        const takenIds = await fetchTakenSlotsForDate(formatDateKey(selectedDate));
+        if (cancelled) return;
+        const slots = getBaseTimeSlots().map((slot) => ({
+          ...slot,
+          available: !takenIds.includes(slot.id),
+        }));
+        setTimeSlots(slots);
+        const firstAvailable = slots.find((s) => s.available);
+        setSelectedTimeId(firstAvailable?.id ?? '');
+      } catch (error) {
+        console.error('[booking] availability fetch failed', error);
+        // Fall back to assuming all slots are available so the UI doesn't lock up.
+        const slots = getBaseTimeSlots().map((s) => ({ ...s, available: true }));
+        setTimeSlots(slots);
+        setSelectedTimeId(slots[0]?.id ?? '');
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [selectedDate]);
 
   // auto-select first service when switching category
@@ -190,7 +207,6 @@ export function BookingExperience({ serviceCategories, addOns, policies }) {
     const slot = timeSlots.find((s) => s.id === selectedTimeId);
     if (!slot) return;
 
-    const code = generateCode();
     setIsProcessing(true);
 
     try {
@@ -203,68 +219,48 @@ export function BookingExperience({ serviceCategories, addOns, policies }) {
         throw new Error(detail);
       }
 
-      // 2. Charge via our server route
+      // 2. Charge + persist atomically via our server route. The server generates
+      //    the booking code, charges Square, then inserts the booking row.
+      const totalCents = totalPrice * 100;
+      const depositCents = chargeCents;
+      const remainingCents = Math.max(0, totalCents - depositCents);
+
       const res = await fetch('/api/payments', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           sourceId: tokenResult.token,
-          amountCents: chargeCents,
-          bookingCode: code,
-          customer: {
-            name: customer.name,
-            email: customer.email,
-            phone: customer.phone,
+          booking: {
+            serviceId: selectedService.id,
+            serviceName: selectedService.name,
+            addOnNames: selectedAddOnItems.map((a) => a.name),
+            scheduledDate: formatDateKey(selectedDate),
+            scheduledTimeId: slot.id,
+            scheduledTimeLabel: slot.label,
+            customerName: customer.name,
+            customerEmail: customer.email,
+            customerPhone: customer.phone,
+            customerNotes: customer.notes,
+            paymentIntent: customer.paymentIntent,
+            totalCents,
+            depositCents,
+            remainingCents,
           },
-          note: `${selectedService.name} — ${formatDateLabel(selectedDate)} ${slot.label}`,
         }),
       });
 
       const payload = await res.json();
-      if (!res.ok || !payload.ok) {
+      if (!res.ok || !payload.ok || !payload.booking) {
         throw new Error(payload.error || 'Payment failed');
       }
 
-      // 3. Save booking locally with the Square payment id attached
-      const totalCents = totalPrice * 100;
-      const depositCents = chargeCents;
-      const remainingCents = Math.max(0, totalCents - depositCents);
+      setConfirmedBooking(payload.booking);
 
-      const booking = {
-        code,
-        service: selectedService.name,
-        serviceId: selectedService.id,
-        price: `$${totalPrice}`,
-        deposit: selectedService.deposit,
-        addOns: selectedAddOnItems.map((a) => a.name),
-        date: formatDateKey(selectedDate),
-        dateLabel: formatDateLabel(selectedDate),
-        timeId: slot.id,
-        timeLabel: slot.label,
-        customer: customer.name,
-        email: customer.email,
-        phone: customer.phone,
-        notes: customer.notes,
-        status: 'confirmed',
-        paymentIntent: customer.paymentIntent,
-        chargeToday: `$${chargeDollars}`,
-        squarePaymentId: payload.paymentId,
-        squarePaymentStatus: payload.status,
-        squareReceiptUrl: payload.receiptUrl,
-        // Balance tracking — used by admin to collect remainder via Square Payment Link
-        totalCents,
-        depositCents,
-        remainingCents,
-        balanceStatus: remainingCents === 0 ? 'paid' : 'unpaid',
-        balanceLinkId: null,
-        balanceLinkUrl: null,
-        balanceOrderId: null,
-        createdAt: new Date().toISOString(),
-      };
-
-      saveBooking(booking);
-      setConfirmedBooking(booking);
-      setTimeSlots(getTimeSlotsForDate(formatDateKey(selectedDate)));
+      // Refresh taken slots so the UI reflects the new booking immediately.
+      const takenIds = await fetchTakenSlotsForDate(formatDateKey(selectedDate));
+      setTimeSlots(
+        getBaseTimeSlots().map((s) => ({ ...s, available: !takenIds.includes(s.id) })),
+      );
     } catch (error) {
       console.error('[booking] payment failed', error);
       setPaymentError(error?.message || 'Payment failed. Please try again.');
@@ -487,14 +483,19 @@ export function BookingExperience({ serviceCategories, addOns, policies }) {
           <div className="success-banner">
             <strong>You're booked!</strong>
             <p>
-              {confirmedBooking.customer}, your {confirmedBooking.service}
-              {confirmedBooking.addOns.length > 0 && ` + ${confirmedBooking.addOns.join(', ')}`}
-              {' '}is confirmed for {confirmedBooking.dateLabel} at {confirmedBooking.timeLabel}.
+              {confirmedBooking.customerName}, your {confirmedBooking.serviceName}
+              {confirmedBooking.addOnNames?.length > 0 &&
+                ` + ${confirmedBooking.addOnNames.join(', ')}`}
+              {' '}is confirmed for {confirmedBooking.scheduledDate} at {confirmedBooking.scheduledTimeLabel}.
             </p>
             <p style={{ marginTop: 8 }}>
-              Your booking code is <strong style={{ color: 'var(--gold, #d4a856)' }}>{confirmedBooking.code}</strong> — use
-              this to manage your appointment in the customer portal.
-              Charged today: {confirmedBooking.chargeToday}.
+              Your booking code is{' '}
+              <strong style={{ color: 'var(--gold, #d4a856)' }}>{confirmedBooking.code}</strong> —
+              use this to manage your appointment in the customer portal.
+              Charged today: ${(confirmedBooking.depositCents / 100).toFixed(
+                confirmedBooking.depositCents % 100 === 0 ? 0 : 2,
+              )}
+              .
             </p>
           </div>
         )}
