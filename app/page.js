@@ -1,59 +1,66 @@
 import Link from 'next/link';
-import { CalendarClock, CreditCard, Gem, Sparkles, Users } from 'lucide-react';
-import { services, dashboardStats, customerMoments, cancellationPolicy, platformPartners } from '../lib/demo-data';
-import { getPlatformStatus } from '../lib/platform';
+import { CalendarClock, CreditCard, Gem, Sparkles } from 'lucide-react';
+import { serviceCategories, addOns, dashboardStats, cancellationPolicy } from '../lib/demo-data';
 import { SiteHeader } from '../components/SiteHeader';
 
-const iconMap = {
-  facial: Sparkles,
-  treatment: Gem,
-  retention: Users,
-  payment: CreditCard,
-  calendar: CalendarClock,
-};
+const features = [
+  {
+    title: 'Curated Treatments',
+    body: 'Browse our full menu with transparent pricing, duration, and what to expect.',
+    Icon: Sparkles,
+  },
+  {
+    title: 'Easy Scheduling',
+    body: 'Pick your preferred day and time in seconds — built for mobile.',
+    Icon: CalendarClock,
+  },
+  {
+    title: 'Secure Payments',
+    body: 'Pay your deposit or full amount securely through Stripe.',
+    Icon: CreditCard,
+  },
+  {
+    title: 'Flexible Policies',
+    body: 'Reschedule or cancel with clear terms — no surprises.',
+    Icon: Gem,
+  },
+];
 
 export default function HomePage() {
-  const platformStatus = getPlatformStatus();
-
   return (
     <main className="page-shell">
-      <div className="ambient ambient-left" />
-      <div className="ambient ambient-right" />
       <SiteHeader />
 
       <section className="hero">
         <div className="hero-copy">
-          <span className="eyebrow">Muze Office amenity booking</span>
-          <h1>
-            A polished esthetician booking flow designed for guests, operators, and repeat revenue.
-          </h1>
+          <span className="eyebrow">Ashley Lacy Aesthetics</span>
+          <h1>Your skin deserves <em>expert</em> care.</h1>
           <p className="hero-text">
-            This MVP gives Muze Office a lightweight mobile-first beauty booking product with service
-            selection, appointment management, cancellation policy support, Stripe payments, and a
-            simple admin console for retention.
+            Professional facials, waxing, body treatments, and lash services
+            tailored to you. Book online in under two minutes.
           </p>
 
           <div className="hero-actions">
             <Link href="/booking" className="button button-primary">
-              Book a service
+              Book an Appointment
             </Link>
-            <Link href="/admin" className="button button-secondary">
-              Open admin dashboard
+            <Link href="/portal" className="button button-secondary">
+              Manage My Booking
             </Link>
           </div>
 
           <div className="hero-highlights">
             <div className="metric-card">
-              <span className="metric-label">Projected weekly revenue</span>
-              <strong>{dashboardStats.weeklyRevenue}</strong>
-            </div>
-            <div className="metric-card">
-              <span className="metric-label">Upcoming appointments</span>
+              <span className="metric-label">Weekly bookings</span>
               <strong>{dashboardStats.bookedThisWeek}</strong>
             </div>
             <div className="metric-card">
-              <span className="metric-label">Retention sequence ready</span>
-              <strong>{dashboardStats.retentionPipeline}</strong>
+              <span className="metric-label">Client satisfaction</span>
+              <strong>98%</strong>
+            </div>
+            <div className="metric-card">
+              <span className="metric-label">Repeat clients</span>
+              <strong>61%</strong>
             </div>
           </div>
         </div>
@@ -61,32 +68,23 @@ export default function HomePage() {
         <div className="hero-panel card glass-card">
           <div className="panel-stack">
             <div>
-              <span className="eyebrow">Core flow</span>
-              <h2>Guest books in minutes</h2>
+              <span className="eyebrow">How it works</span>
+              <h2>Book in 3 steps</h2>
             </div>
 
             <div className="check-list">
               <div className="check-item">
                 <span className="check-badge">1</span>
-                <p>Choose a service, see duration and pricing, then pick a slot.</p>
+                <p>Choose your treatment and see pricing, duration, and what's included.</p>
               </div>
               <div className="check-item">
                 <span className="check-badge">2</span>
-                <p>Capture customer details, consent, and cancellation policy terms.</p>
+                <p>Pick a date and time that works for your schedule.</p>
               </div>
               <div className="check-item">
                 <span className="check-badge">3</span>
-                <p>Process payment with Stripe, sync records to Supabase, and send confirmations with Resend.</p>
+                <p>Confirm your details, pay your deposit, and you're all set.</p>
               </div>
-            </div>
-
-            <div className="platform-grid">
-              {platformPartners.map((partner) => (
-                <div key={partner.name} className="partner-chip">
-                  <span>{partner.name}</span>
-                  <small>{platformStatus[partner.key] ? 'Connected' : 'Needs env'}</small>
-                </div>
-              ))}
             </div>
           </div>
         </div>
@@ -94,74 +92,73 @@ export default function HomePage() {
 
       <section className="section">
         <div className="section-header">
-          <span className="eyebrow">Experience pillars</span>
-          <h2>Built for guest delight and operator control</h2>
+          <span className="eyebrow">Why book with us</span>
+          <h2>A booking experience designed around you</h2>
         </div>
 
         <div className="feature-grid">
-          {[
-            {
-              title: 'Service-led booking',
-              body: 'Guests choose the exact treatment, view duration, deposit rules, and preferred aftercare notes before they confirm.',
-              icon: 'facial',
-            },
-            {
-              title: 'Calendar clarity',
-              body: 'Simple slot selection keeps the flow fast on mobile while giving the esthetician a clean daily schedule.',
-              icon: 'calendar',
-            },
-            {
-              title: 'Cancellation protection',
-              body: 'Flexible policy windows let Muze Office charge cancellation fees or enforce deposit forfeiture when needed.',
-              icon: 'payment',
-            },
-            {
-              title: 'Retention-first CRM',
-              body: 'The admin view tracks lifetime spend, loyalty stage, and follow-up moments so customers come back.',
-              icon: 'retention',
-            },
-          ].map((feature) => {
-            const Icon = iconMap[feature.icon];
-            return (
-              <article key={feature.title} className="card feature-card">
-                <div className="icon-pill">
-                  <Icon size={20} />
-                </div>
-                <h3>{feature.title}</h3>
-                <p>{feature.body}</p>
-              </article>
-            );
-          })}
+          {features.map((feature) => (
+            <article key={feature.title} className="card feature-card">
+              <div className="icon-pill">
+                <feature.Icon size={20} />
+              </div>
+              <h3>{feature.title}</h3>
+              <p>{feature.body}</p>
+            </article>
+          ))}
         </div>
       </section>
 
-      <section className="section split-section">
-        <div className="card">
-          <div className="section-header left">
-            <span className="eyebrow">Services</span>
-            <h2>Example esthetician menu</h2>
-          </div>
-
-          <div className="service-list">
-            {services.map((service) => (
-              <div key={service.id} className="service-row">
-                <div>
-                  <h3>{service.name}</h3>
-                  <p>{service.description}</p>
-                </div>
-                <div className="service-meta">
-                  <span>{service.duration}</span>
-                  <strong>{service.price}</strong>
-                </div>
-              </div>
-            ))}
-          </div>
+      {/* ── Full Service Menu ── */}
+      <section className="section">
+        <div className="section-header">
+          <span className="eyebrow">Our menu</span>
+          <h2>Treatments & Services</h2>
         </div>
 
+        <div className="menu-grid">
+          {serviceCategories.map((category) => (
+            <div key={category.id} className="card menu-category">
+              <h3 className="menu-category-title">{category.name}</h3>
+              <div className="menu-items">
+                {category.services.map((service) => (
+                  <div key={service.id} className="menu-item">
+                    <div className="menu-item-top">
+                      <span className="menu-item-name">{service.name}</span>
+                      <span className="menu-item-dots" />
+                      <span className="menu-item-price">{service.price}</span>
+                    </div>
+                    <span className="menu-item-duration">{service.duration}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+
+          {/* Add-Ons card */}
+          <div className="card menu-category addon-category">
+            <h3 className="menu-category-title">Add-Ons</h3>
+            <div className="menu-items">
+              {addOns.map((addon) => (
+                <div key={addon.id} className="menu-item">
+                  <div className="menu-item-top">
+                    <span className="menu-item-name">{addon.name}</span>
+                    <span className="menu-item-dots" />
+                    <span className="menu-item-price">{addon.price}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ── Cancellation Policy ── */}
+      <section className="section split-section">
         <div className="card accent-card">
           <div className="section-header left">
-            <span className="eyebrow">Cancellation terms</span>
-            <h2>Clear policies protect the provider and set expectations early</h2>
+            <span className="eyebrow">Good to know</span>
+            <h2>Cancellation Policy</h2>
           </div>
 
           <div className="policy-stack">
@@ -173,38 +170,17 @@ export default function HomePage() {
             ))}
           </div>
         </div>
-      </section>
 
-      <section className="section">
-        <div className="section-header">
-          <span className="eyebrow">Retention moments</span>
-          <h2>Customer marketing hooks baked into the admin workflow</h2>
-        </div>
-
-        <div className="feature-grid">
-          {customerMoments.map((moment) => (
-            <article key={moment.title} className="card">
-              <h3>{moment.title}</h3>
-              <p>{moment.copy}</p>
-              <small>{moment.trigger}</small>
-            </article>
-          ))}
-        </div>
-      </section>
-
-      <section className="cta-band">
-        <div>
-          <span className="eyebrow">Ready to wire the stack</span>
-          <h2>Supabase stores bookings, Stripe charges guests, Resend handles confirmations, and Vercel ships it.</h2>
-        </div>
-
-        <div className="hero-actions">
-          <Link href="/booking" className="button button-primary">
-            Preview booking flow
-          </Link>
-          <Link href="/portal" className="button button-secondary">
-            Preview customer portal
-          </Link>
+        <div className="cta-side">
+          <div className="card glass-card" style={{ height: '100%', display: 'grid', alignContent: 'center', gap: 20 }}>
+            <span className="eyebrow">Ready?</span>
+            <h2>Book your appointment today.</h2>
+            <div className="hero-actions">
+              <Link href="/booking" className="button button-primary">
+                Book Now
+              </Link>
+            </div>
+          </div>
         </div>
       </section>
     </main>

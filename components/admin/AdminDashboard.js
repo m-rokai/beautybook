@@ -1,25 +1,93 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { getBookings, updateBooking, seedIfEmpty } from '../../lib/booking-store';
 
-export function AdminDashboard({ stats, appointments, revenue, customers, automations, notes }) {
-  const [appointmentState, setAppointmentState] = useState(appointments);
+const formatDollars = (cents) => {
+  if (typeof cents !== 'number' || Number.isNaN(cents)) return '$0';
+  return `$${(cents / 100).toFixed(cents % 100 === 0 ? 0 : 2)}`;
+};
+
+export function AdminDashboard({ stats, revenue, customers, automations }) {
+  const [bookings, setBookings] = useState([]);
   const [selectedFilter, setSelectedFilter] = useState('all');
+  const [balanceState, setBalanceState] = useState({}); // { [code]: 'loading' | 'error' | null }
+  const [balanceError, setBalanceError] = useState({}); // { [code]: string }
 
-  const filteredAppointments = useMemo(() => {
-    if (selectedFilter === 'all') return appointmentState;
-    return appointmentState.filter((appointment) => appointment.status === selectedFilter);
-  }, [appointmentState, selectedFilter]);
+  useEffect(() => {
+    seedIfEmpty();
+    setBookings(getBookings());
+  }, []);
 
-  const handleStatusChange = (id, status) => {
-    setAppointmentState((current) =>
-      current.map((appointment) => (appointment.id === id ? { ...appointment, status } : appointment))
-    );
+  const refreshBookings = () => setBookings(getBookings());
+
+  const handleCollectBalance = async (booking) => {
+    if (!booking?.remainingCents || booking.remainingCents <= 0) return;
+
+    setBalanceState((s) => ({ ...s, [booking.code]: 'loading' }));
+    setBalanceError((s) => ({ ...s, [booking.code]: '' }));
+
+    try {
+      const res = await fetch('/api/bookings/collect-balance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          bookingCode: booking.code,
+          amountCents: booking.remainingCents,
+          serviceName: booking.service,
+          customer: { name: booking.customer, email: booking.email },
+        }),
+      });
+
+      const payload = await res.json();
+      if (!res.ok || !payload.ok) {
+        throw new Error(payload.error || 'Failed to create payment link');
+      }
+
+      updateBooking(booking.code, {
+        balanceStatus: 'link_sent',
+        balanceLinkId: payload.linkId,
+        balanceLinkUrl: payload.url,
+        balanceOrderId: payload.orderId,
+      });
+      refreshBookings();
+      setBalanceState((s) => ({ ...s, [booking.code]: null }));
+    } catch (error) {
+      console.error('[admin] collect balance failed', error);
+      setBalanceError((s) => ({ ...s, [booking.code]: error?.message || 'Failed' }));
+      setBalanceState((s) => ({ ...s, [booking.code]: 'error' }));
+    }
   };
+
+  const handleCopyLink = async (url) => {
+    try {
+      await navigator.clipboard.writeText(url);
+    } catch {
+      window.prompt('Copy this link:', url);
+    }
+  };
+
+  const filteredBookings = useMemo(() => {
+    if (selectedFilter === 'all') return bookings;
+    return bookings.filter((b) => b.status === selectedFilter);
+  }, [bookings, selectedFilter]);
+
+  const handleStatusChange = (code, status) => {
+    updateBooking(code, { status });
+    refreshBookings();
+  };
+
+  const bookingCounts = useMemo(() => {
+    const confirmed = bookings.filter((b) => b.status === 'confirmed').length;
+    const pending = bookings.filter((b) => b.status === 'pending').length;
+    const cancelled = bookings.filter((b) => b.status === 'cancelled').length;
+    return { total: bookings.length, confirmed, pending, cancelled };
+  }, [bookings]);
 
   return (
     <section className="dashboard-grid">
       <div className="dashboard-column">
+        {/* ── Live stats ── */}
         <div className="stats-grid">
           {stats.cards.map((card) => (
             <article key={card.label} className="stats-card card">
@@ -30,11 +98,12 @@ export function AdminDashboard({ stats, appointments, revenue, customers, automa
           ))}
         </div>
 
+        {/* ── Appointment board — reads from localStorage ── */}
         <div className="card">
           <div className="dashboard-toolbar">
             <div>
-              <span className="eyebrow">Today</span>
-              <h2>Appointment board</h2>
+              <span className="eyebrow">{bookings.length} bookings</span>
+              <h2>Appointments</h2>
             </div>
 
             <div className="field">
@@ -42,76 +111,152 @@ export function AdminDashboard({ stats, appointments, revenue, customers, automa
               <select
                 id="statusFilter"
                 value={selectedFilter}
-                onChange={(event) => setSelectedFilter(event.target.value)}
+                onChange={(e) => setSelectedFilter(e.target.value)}
               >
-                <option value="all">All appointments</option>
-                <option value="confirmed">Confirmed</option>
-                <option value="pending">Pending</option>
-                <option value="cancelled">Cancelled</option>
+                <option value="all">All ({bookingCounts.total})</option>
+                <option value="confirmed">Confirmed ({bookingCounts.confirmed})</option>
+                <option value="pending">Pending ({bookingCounts.pending})</option>
+                <option value="cancelled">Cancelled ({bookingCounts.cancelled})</option>
               </select>
             </div>
           </div>
 
           <div className="table-stack">
             <div className="table-header">
-              <span>Guest</span>
+              <span>Client</span>
               <span>Service</span>
               <span>When</span>
               <span>Status</span>
             </div>
 
-            {filteredAppointments.map((appointment) => (
-              <div key={appointment.id} className="table-row">
-                <div>
-                  <strong>{appointment.customer}</strong>
-                  <p>{appointment.contact}</p>
-                </div>
-                <div>
-                  <strong>{appointment.service}</strong>
-                  <p>{appointment.amount}</p>
-                </div>
-                <div>
-                  <strong>{appointment.time}</strong>
-                  <p>{appointment.date}</p>
-                </div>
-                <div className="stack">
-                  <span
-                    className={`status-pill ${
-                      appointment.status === 'cancelled'
-                        ? 'warning'
-                        : appointment.status === 'confirmed'
-                        ? 'gold'
-                        : ''
-                    }`}
-                  >
-                    {appointment.status}
-                  </span>
-                  <div className="action-row">
-                    <button
-                      className="button button-secondary"
-                      type="button"
-                      onClick={() => handleStatusChange(appointment.id, 'confirmed')}
+            {filteredBookings.length === 0 && (
+              <div className="empty-state">
+                No {selectedFilter === 'all' ? '' : selectedFilter} bookings yet.
+              </div>
+            )}
+
+            {filteredBookings.map((booking) => {
+              const hasBalance =
+                typeof booking.remainingCents === 'number' && booking.remainingCents > 0;
+              const balanceIsPaid = booking.balanceStatus === 'paid';
+              const linkState = balanceState[booking.code];
+              const linkErr = balanceError[booking.code];
+
+              return (
+                <div key={booking.code} className="table-row">
+                  <div>
+                    <strong>{booking.customer}</strong>
+                    <p>{booking.email}</p>
+                    <p className="muted" style={{ fontSize: '0.78rem' }}>{booking.code}</p>
+                  </div>
+                  <div>
+                    <strong>{booking.service}</strong>
+                    <p>Deposit {booking.chargeToday}</p>
+                    {hasBalance && !balanceIsPaid && (
+                      <p className="muted" style={{ fontSize: '0.82rem' }}>
+                        Balance owed: <strong>{formatDollars(booking.remainingCents)}</strong>
+                      </p>
+                    )}
+                    {balanceIsPaid && (
+                      <p style={{ fontSize: '0.82rem', color: 'var(--success)' }}>Paid in full</p>
+                    )}
+                  </div>
+                  <div>
+                    <strong>{booking.timeLabel}</strong>
+                    <p>{booking.dateLabel}</p>
+                  </div>
+                  <div className="stack">
+                    <span
+                      className={`status-pill ${
+                        booking.status === 'cancelled'
+                          ? 'warning'
+                          : booking.status === 'confirmed'
+                          ? 'success'
+                          : 'gold'
+                      }`}
                     >
-                      Confirm
-                    </button>
-                    <button
-                      className="button button-secondary"
-                      type="button"
-                      onClick={() => handleStatusChange(appointment.id, 'cancelled')}
-                    >
-                      Cancel
-                    </button>
+                      {booking.status}
+                    </span>
+
+                    {booking.status !== 'cancelled' && (
+                      <div className="action-row">
+                        <button
+                          className="button button-secondary"
+                          type="button"
+                          onClick={() => handleStatusChange(booking.code, 'confirmed')}
+                        >
+                          Confirm
+                        </button>
+                        <button
+                          className="button button-danger"
+                          type="button"
+                          onClick={() => handleStatusChange(booking.code, 'cancelled')}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    )}
+
+                    {booking.status !== 'cancelled' && hasBalance && !balanceIsPaid && (
+                      <div className="stack" style={{ gap: 6, marginTop: 4 }}>
+                        {!booking.balanceLinkUrl ? (
+                          <button
+                            className="button button-primary"
+                            type="button"
+                            onClick={() => handleCollectBalance(booking)}
+                            disabled={linkState === 'loading'}
+                          >
+                            {linkState === 'loading'
+                              ? 'Creating link…'
+                              : `Send payment link (${formatDollars(booking.remainingCents)})`}
+                          </button>
+                        ) : (
+                          <div className="note-card" style={{ padding: 10 }}>
+                            <strong style={{ fontSize: '0.82rem' }}>Payment link ready</strong>
+                            <p style={{
+                              fontSize: '0.78rem',
+                              wordBreak: 'break-all',
+                              marginTop: 4,
+                            }}>
+                              <a href={booking.balanceLinkUrl} target="_blank" rel="noreferrer">
+                                {booking.balanceLinkUrl}
+                              </a>
+                            </p>
+                            <div className="action-row" style={{ marginTop: 6 }}>
+                              <button
+                                type="button"
+                                className="button button-secondary"
+                                onClick={() => handleCopyLink(booking.balanceLinkUrl)}
+                              >
+                                Copy
+                              </button>
+                              <button
+                                type="button"
+                                className="button button-secondary"
+                                onClick={() => handleCollectBalance(booking)}
+                              >
+                                Regenerate
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                        {linkErr && (
+                          <small className="payment-error">{linkErr}</small>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 
+        {/* ── Revenue (sample data) ── */}
         <div className="card">
           <div className="section-header left">
-            <span className="eyebrow">Revenue snapshot</span>
-            <h2>Weekly performance</h2>
+            <span className="eyebrow">This week</span>
+            <h2>Revenue</h2>
           </div>
 
           <div className="timeline">
@@ -121,7 +266,7 @@ export function AdminDashboard({ stats, appointments, revenue, customers, automa
                   <strong>{day.day}</strong>
                   <span className="status-pill gold">{day.total}</span>
                 </div>
-                <p>{day.note}</p>
+                <p className="muted" style={{ marginTop: 4, fontSize: '0.88rem' }}>{day.note}</p>
               </div>
             ))}
           </div>
@@ -129,10 +274,11 @@ export function AdminDashboard({ stats, appointments, revenue, customers, automa
       </div>
 
       <div className="dashboard-column">
+        {/* ── Client book (sample data) ── */}
         <div className="card">
           <div className="section-header left">
-            <span className="eyebrow">Retention CRM</span>
-            <h2>Customer roster</h2>
+            <span className="eyebrow">Clients</span>
+            <h2>Client Book</h2>
           </div>
 
           <div className="customer-grid">
@@ -148,20 +294,21 @@ export function AdminDashboard({ stats, appointments, revenue, customers, automa
                   </span>
                 </div>
                 <p>{customer.story}</p>
-                <ul className="list-tight">
+                <ul className="list-tight" style={{ marginTop: 10 }}>
                   <li>Lifetime spend: {customer.lifetimeSpend}</li>
                   <li>Last visit: {customer.lastVisit}</li>
-                  <li>Next action: {customer.nextAction}</li>
+                  <li>Next step: {customer.nextAction}</li>
                 </ul>
               </article>
             ))}
           </div>
         </div>
 
+        {/* ── Automations ── */}
         <div className="card">
           <div className="section-header left">
             <span className="eyebrow">Automations</span>
-            <h2>Resend + Supabase workflows</h2>
+            <h2>Follow-up Workflows</h2>
           </div>
 
           <div className="retention-grid">
@@ -171,22 +318,6 @@ export function AdminDashboard({ stats, appointments, revenue, customers, automa
                 <p>{automation.copy}</p>
                 <small>{automation.trigger}</small>
               </article>
-            ))}
-          </div>
-        </div>
-
-        <div className="card accent-card">
-          <div className="section-header left">
-            <span className="eyebrow">Operator notes</span>
-            <h2>Implementation details</h2>
-          </div>
-
-          <div className="stack">
-            {notes.map((note) => (
-              <div key={note.title} className="policy-item">
-                <h3>{note.title}</h3>
-                <p>{note.body}</p>
-              </div>
             ))}
           </div>
         </div>

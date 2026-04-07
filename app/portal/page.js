@@ -1,20 +1,20 @@
 import { SiteHeader } from '../../components/SiteHeader';
 import { CustomerPortal } from '../../components/portal/CustomerPortal';
-import { customerAppointments, slotGroups, bookingPolicies } from '../../lib/demo-data';
+import { bookingPolicies } from '../../lib/demo-data';
 
 export default function PortalPage() {
   return (
     <main className="page-shell interior-shell">
       <SiteHeader />
       <section className="page-intro">
-        <span className="eyebrow">Customer self-service</span>
-        <h1>Let guests reschedule or cancel appointments without chasing your team.</h1>
+        <span className="eyebrow">My appointment</span>
+        <h1>Need to reschedule? No problem.</h1>
         <p>
-          A lightweight portal keeps the experience modern while still respecting cancellation fee rules.
+          Look up your booking, reschedule to a different time, or cancel if plans change.
         </p>
       </section>
 
-      <CustomerPortal appointments={customerAppointments} slotGroups={slotGroups} policies={bookingPolicies} />
+      <CustomerPortal policies={bookingPolicies} />
     </main>
   );
 }

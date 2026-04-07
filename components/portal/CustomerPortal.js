@@ -1,45 +1,98 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { format } from 'date-fns';
+import {
+  findBooking,
+  updateBooking,
+  getAvailableDates,
+  getTimeSlotsForDate,
+  formatDateKey,
+  formatDateLabel,
+  seedIfEmpty,
+} from '../../lib/booking-store';
 
-export function CustomerPortal({ appointments, slotGroups, policies }) {
-  const [bookingCode, setBookingCode] = useState('MUZE-ESTH-2048');
-  const [appointmentState, setAppointmentState] = useState(appointments);
+export function CustomerPortal({ policies }) {
+  const [bookingCode, setBookingCode] = useState('');
+  const [appointment, setAppointment] = useState(null);
+  const [lookupDone, setLookupDone] = useState(false);
+  const [showReschedule, setShowReschedule] = useState(false);
 
-  const allSlots = useMemo(() => slotGroups.flatMap((group) => group.slots), [slotGroups]);
-  const matchedAppointment = appointmentState.find((appointment) => appointment.code === bookingCode.trim());
+  // reschedule calendar state
+  const [dates, setDates] = useState([]);
+  const [selectedDate, setSelectedDate] = useState(null);
+  const [timeSlots, setTimeSlots] = useState([]);
+  const [selectedTimeId, setSelectedTimeId] = useState('');
 
-  const reschedule = (slotId) => {
-    const slot = allSlots.find((entry) => entry.id === slotId);
-    if (!slot || !matchedAppointment) return;
+  useEffect(() => {
+    seedIfEmpty();
+    const available = getAvailableDates(14);
+    setDates(available);
+  }, []);
 
-    setAppointmentState((current) =>
-      current.map((appointment) =>
-        appointment.code === bookingCode.trim()
-          ? { ...appointment, date: slot.dateLabel, time: slot.label, status: 'Rescheduled' }
-          : appointment
-      )
-    );
+  useEffect(() => {
+    if (!selectedDate) return;
+    const slots = getTimeSlotsForDate(formatDateKey(selectedDate));
+    setTimeSlots(slots);
+    const firstAvailable = slots.find((s) => s.available);
+    setSelectedTimeId(firstAvailable?.id ?? '');
+  }, [selectedDate]);
+
+  const handleLookup = () => {
+    const found = findBooking(bookingCode);
+    setAppointment(found || null);
+    setLookupDone(true);
+    setShowReschedule(false);
   };
 
-  const cancelAppointment = () => {
-    if (!matchedAppointment) return;
-
-    setAppointmentState((current) =>
-      current.map((appointment) =>
-        appointment.code === bookingCode.trim()
-          ? { ...appointment, status: 'Cancelled', feeNotice: 'Late cancellation fee applies: $35' }
-          : appointment
-      )
-    );
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleLookup();
+    }
   };
+
+  const handleReschedule = () => {
+    if (!appointment || !selectedDate || !selectedTimeId) return;
+    const slot = timeSlots.find((s) => s.id === selectedTimeId);
+    if (!slot) return;
+
+    const updated = updateBooking(appointment.code, {
+      date: formatDateKey(selectedDate),
+      dateLabel: formatDateLabel(selectedDate),
+      timeId: slot.id,
+      timeLabel: slot.label,
+      status: 'rescheduled',
+    });
+
+    setAppointment(updated);
+    setShowReschedule(false);
+  };
+
+  const handleCancel = () => {
+    if (!appointment) return;
+
+    const updated = updateBooking(appointment.code, {
+      status: 'cancelled',
+      feeNotice: 'Late cancellation fee may apply — see policy.',
+    });
+
+    setAppointment(updated);
+  };
+
+  const statusClass =
+    appointment?.status === 'cancelled'
+      ? 'warning'
+      : appointment?.status === 'confirmed'
+      ? 'success'
+      : 'gold';
 
   return (
     <section className="portal-grid">
       <div className="card portal-column">
         <div className="section-header left">
-          <span className="eyebrow">Lookup</span>
-          <h2>Manage your appointment</h2>
+          <span className="eyebrow">Look up</span>
+          <h2>Find Your Appointment</h2>
         </div>
 
         <div className="field">
@@ -47,67 +100,125 @@ export function CustomerPortal({ appointments, slotGroups, policies }) {
           <input
             id="bookingCode"
             value={bookingCode}
-            onChange={(event) => setBookingCode(event.target.value)}
-            placeholder="Enter booking reference"
+            onChange={(e) => setBookingCode(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="e.g. AL-SAMPLE1"
           />
         </div>
 
-        {matchedAppointment ? (
-          <div className="stack">
+        <button type="button" className="button button-primary" onClick={handleLookup}>
+          Look Up Booking
+        </button>
+
+        {lookupDone && !appointment && (
+          <div className="empty-state">
+            No booking found for "{bookingCode}". Double-check your code and try again.
+          </div>
+        )}
+
+        {appointment && (
+          <div className="stack" style={{ marginTop: 8 }}>
             <div className="note-card">
               <div className="appointment-meta">
                 <div>
-                  <strong>{matchedAppointment.service}</strong>
-                  <p>{matchedAppointment.provider}</p>
+                  <strong>{appointment.service}</strong>
+                  <p>{appointment.customer}</p>
                 </div>
-                <span className={`status-pill ${matchedAppointment.status === 'Cancelled' ? 'warning' : 'gold'}`}>
-                  {matchedAppointment.status}
+                <span className={`status-pill ${statusClass}`}>
+                  {appointment.status}
                 </span>
               </div>
-              <ul className="list-tight">
-                <li>Date: {matchedAppointment.date}</li>
-                <li>Time: {matchedAppointment.time}</li>
-                <li>Guest: {matchedAppointment.customer}</li>
-                <li>Payment status: {matchedAppointment.paymentStatus}</li>
+              <ul className="list-tight" style={{ marginTop: 12 }}>
+                <li>Date: {appointment.dateLabel}</li>
+                <li>Time: {appointment.timeLabel}</li>
+                <li>Email: {appointment.email}</li>
+                <li>Payment: {appointment.paymentIntent === 'full' ? 'Paid in full' : 'Deposit captured'} ({appointment.chargeToday})</li>
               </ul>
-              {matchedAppointment.feeNotice ? <p>{matchedAppointment.feeNotice}</p> : null}
+              {appointment.feeNotice && (
+                <p style={{ marginTop: 12, color: 'var(--warning)', fontWeight: 500, fontSize: '0.9rem' }}>
+                  {appointment.feeNotice}
+                </p>
+              )}
             </div>
 
-            <div className="stack">
-              <h3>Pick a new slot</h3>
-              <div className="slot-grid">
-                {allSlots.slice(0, 6).map((slot) => (
-                  <button
-                    key={slot.id}
-                    type="button"
-                    className="chip-button"
-                    onClick={() => reschedule(slot.id)}
-                  >
-                    <strong>{slot.label}</strong>
-                    <small>{slot.dateLabel}</small>
-                  </button>
-                ))}
-              </div>
-            </div>
+            {appointment.status !== 'cancelled' && (
+              <>
+                {!showReschedule ? (
+                  <div className="action-row">
+                    <button
+                      type="button"
+                      className="button button-secondary"
+                      onClick={() => {
+                        setShowReschedule(true);
+                        if (dates.length > 0 && !selectedDate) setSelectedDate(dates[0]);
+                      }}
+                    >
+                      Reschedule
+                    </button>
+                    <button type="button" className="button button-danger" onClick={handleCancel}>
+                      Cancel Appointment
+                    </button>
+                  </div>
+                ) : (
+                  <div className="stack">
+                    <h3>Pick a new date & time</h3>
 
-            <div className="action-row">
-              <button className="button button-primary" type="button" onClick={cancelAppointment}>
-                Cancel appointment
-              </button>
-              <span className="muted">Stripe metadata can drive fee collection when cancellation terms are breached.</span>
-            </div>
-          </div>
-        ) : (
-          <div className="empty-state">
-            Enter a valid booking code to reschedule or cancel an appointment.
+                    <div className="date-strip">
+                      {dates.map((date) => {
+                        const key = formatDateKey(date);
+                        const isActive = selectedDate && formatDateKey(selectedDate) === key;
+                        return (
+                          <button
+                            key={key}
+                            type="button"
+                            className={`date-card ${isActive ? 'active' : ''}`}
+                            onClick={() => setSelectedDate(date)}
+                          >
+                            <span className="date-day">{format(date, 'EEE')}</span>
+                            <span className="date-num">{format(date, 'd')}</span>
+                            <span className="date-month">{format(date, 'MMM')}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {selectedDate && (
+                      <div className="time-grid">
+                        {timeSlots.map((slot) => (
+                          <button
+                            key={slot.id}
+                            type="button"
+                            disabled={!slot.available}
+                            className={`slot-card ${selectedTimeId === slot.id ? 'active' : ''} ${!slot.available ? 'booked' : ''}`}
+                            onClick={() => slot.available && setSelectedTimeId(slot.id)}
+                          >
+                            <strong>{slot.label}</strong>
+                            <small>{slot.available ? 'Available' : 'Booked'}</small>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+
+                    <div className="action-row">
+                      <button type="button" className="button button-primary" onClick={handleReschedule}>
+                        Confirm Reschedule
+                      </button>
+                      <button type="button" className="button button-secondary" onClick={() => setShowReschedule(false)}>
+                        Never mind
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
           </div>
         )}
       </div>
 
       <aside className="card portal-column">
         <div className="section-header left">
-          <span className="eyebrow">Policy reminder</span>
-          <h2>Before a guest changes plans</h2>
+          <span className="eyebrow">Policies</span>
+          <h2>Before You Make Changes</h2>
         </div>
 
         <div className="policy-summary">
@@ -119,13 +230,11 @@ export function CustomerPortal({ appointments, slotGroups, policies }) {
           ))}
         </div>
 
-        <div className="stack">
-          <h3>Guest communications</h3>
-          <ul className="list-tight">
-            <li>Send confirmation and reminder emails via Resend.</li>
-            <li>Update the appointment record in Supabase after each customer action.</li>
-            <li>Issue fee charges or refunds through Stripe depending on timing and policy.</li>
-          </ul>
+        <div className="note-card" style={{ marginTop: 8 }}>
+          <strong>Sample codes to try</strong>
+          <p>
+            AL-SAMPLE1, AL-SAMPLE2, AL-SAMPLE3 — or book an appointment to get your own code.
+          </p>
         </div>
       </aside>
     </section>

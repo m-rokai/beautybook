@@ -3,26 +3,26 @@ import Link from 'next/link';
 export function SiteHeader() {
   return (
     <header className="site-header">
-      <div className="brand-block">
-        <div className="brand-mark">M</div>
+      <Link href="/" className="brand-block">
+        <div className="brand-mark">AL</div>
         <div className="brand-copy">
-          <span>Muze Office</span>
-          <strong>Beauty Booking</strong>
+          <span>Ashley Lacy</span>
+          <strong>Aesthetics</strong>
         </div>
-      </div>
+      </Link>
 
       <nav className="site-nav" aria-label="Primary navigation">
         <Link className="nav-link" href="/">
-          Overview
+          Home
         </Link>
         <Link className="nav-link" href="/booking">
-          Booking
+          Book Now
         </Link>
         <Link className="nav-link" href="/portal">
-          Customer portal
+          My Appointment
         </Link>
         <Link className="nav-link" href="/admin">
-          Admin
+          Dashboard
         </Link>
       </nav>
     </header>

@@ -1,9 +1,9 @@
 import './globals.css';
 
 export const metadata = {
-  title: 'Muze Office Beauty Booking',
+  title: 'Ashley Lacy Aesthetics | Book Your Glow',
   description:
-    'Mobile-first esthetician booking experience for the Muze Office amenity ecosystem.',
+    'Book facials, skin treatments, and beauty services with Ashley Lacy Aesthetics. Easy online booking with flexible scheduling.',
 };
 
 export default function RootLayout({ children }) {

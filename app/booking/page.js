@@ -1,20 +1,21 @@
 import { BookingExperience } from '../../components/booking/BookingExperience';
 import { SiteHeader } from '../../components/SiteHeader';
-import { services, slotGroups, bookingPolicies } from '../../lib/demo-data';
+import { serviceCategories, addOns, bookingPolicies } from '../../lib/demo-data';
 
 export default function BookingPage() {
   return (
     <main className="page-shell interior-shell">
       <SiteHeader />
       <section className="page-intro">
-        <span className="eyebrow">Guest booking flow</span>
-        <h1>Book an esthetician appointment from your phone in under two minutes.</h1>
+        <span className="eyebrow">Book your treatment</span>
+        <h1>Choose your service, pick a time, and you're all set.</h1>
         <p>
-          Select a service, choose a time, review cancellation terms, and lock in the appointment.
+          Select from our treatment menu, find a slot that works for you, and secure your
+          appointment in just a few taps.
         </p>
       </section>
 
-      <BookingExperience services={services} slotGroups={slotGroups} policies={bookingPolicies} />
+      <BookingExperience serviceCategories={serviceCategories} addOns={addOns} policies={bookingPolicies} />
     </main>
   );
 }
