@@ -146,24 +146,30 @@ export function BookingExperience({ serviceCategories, addOns, policies }) {
     if (available.length > 0) setSelectedDate(available[0]);
   }, []);
 
-  // Fetch taken slots for the selected date and compute availability.
+  // Fetch taken slots for the selected date + service. Refetches whenever the
+  // service changes too, since a longer service may block more start slots.
   useEffect(() => {
     if (!selectedDate) return;
     let cancelled = false;
     (async () => {
       try {
-        const takenIds = await fetchTakenSlotsForDate(formatDateKey(selectedDate));
+        const takenIds = await fetchTakenSlotsForDate(
+          formatDateKey(selectedDate),
+          selectedServiceId || undefined,
+        );
         if (cancelled) return;
         const slots = getBaseTimeSlots().map((slot) => ({
           ...slot,
           available: !takenIds.includes(slot.id),
         }));
         setTimeSlots(slots);
-        const firstAvailable = slots.find((s) => s.available);
-        setSelectedTimeId(firstAvailable?.id ?? '');
+        // Keep the user's prior pick if it's still valid; otherwise jump to the first open one.
+        setSelectedTimeId((prev) => {
+          if (prev && slots.find((s) => s.id === prev && s.available)) return prev;
+          return slots.find((s) => s.available)?.id ?? '';
+        });
       } catch (error) {
         console.error('[booking] availability fetch failed', error);
-        // Fall back to assuming all slots are available so the UI doesn't lock up.
         const slots = getBaseTimeSlots().map((s) => ({ ...s, available: true }));
         setTimeSlots(slots);
         setSelectedTimeId(slots[0]?.id ?? '');
@@ -172,7 +178,7 @@ export function BookingExperience({ serviceCategories, addOns, policies }) {
     return () => {
       cancelled = true;
     };
-  }, [selectedDate]);
+  }, [selectedDate, selectedServiceId]);
 
   // auto-select first service when switching category
   useEffect(() => {
@@ -323,7 +329,10 @@ export function BookingExperience({ serviceCategories, addOns, policies }) {
       setConfirmedBooking(payload.booking);
 
       // Refresh taken slots so the UI reflects the new booking immediately.
-      const takenIds = await fetchTakenSlotsForDate(formatDateKey(selectedDate));
+      const takenIds = await fetchTakenSlotsForDate(
+        formatDateKey(selectedDate),
+        selectedServiceId || undefined,
+      );
       setTimeSlots(
         getBaseTimeSlots().map((s) => ({ ...s, available: !takenIds.includes(s.id) })),
       );
