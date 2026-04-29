@@ -24,12 +24,14 @@
   --purple-glow: rgba(168, 130, 255, 0.15);
   --purple-glow-strong: rgba(168, 130, 255, 0.25);
 
-  --gold: #d4a856;
-  --gold-bright: #e8c67a;
-  --gold-deep: #b8903e;
-  --gold-dark: #3d2e15;
-  --gold-glow: rgba(212, 168, 86, 0.15);
-  --gold-glow-strong: rgba(212, 168, 86, 0.25);
+  /* Secondary purple accent (formerly gold). Vivid orchid-purple paired with
+     the cooler --purple token so the brand keeps a two-tone purple voice. */
+  --gold: #b86dff;
+  --gold-bright: #d4a5ff;
+  --gold-deep: #8a3fd0;
+  --gold-dark: #2a154a;
+  --gold-glow: rgba(184, 109, 255, 0.15);
+  --gold-glow-strong: rgba(184, 109, 255, 0.28);
 
   --success: #4ade80;
   --success-dark: #14352a;
@@ -40,7 +42,7 @@
   --shadow-md: 0 8px 32px rgba(0, 0, 0, 0.4);
   --shadow-lg: 0 24px 64px rgba(0, 0, 0, 0.5);
   --shadow-purple: 0 8px 40px rgba(168, 130, 255, 0.2);
-  --shadow-gold: 0 8px 32px rgba(212, 168, 86, 0.2);
+  --shadow-gold: 0 8px 32px rgba(184, 109, 255, 0.22);
 
   --radius-sm: 10px;
   --radius-md: 14px;
@@ -71,7 +73,7 @@ body {
   background: var(--bg);
   background-image:
     radial-gradient(ellipse 100% 60% at 50% -20%, rgba(168, 130, 255, 0.08), transparent),
-    radial-gradient(ellipse 60% 40% at 85% 20%, rgba(212, 168, 86, 0.04), transparent);
+    radial-gradient(ellipse 60% 40% at 85% 20%, rgba(184, 109, 255, 0.04), transparent);
   color: var(--ink);
   font-family: var(--font-body);
   font-size: 15px;
@@ -227,7 +229,7 @@ h3 {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.14em;
-  border: 1px solid rgba(212, 168, 86, 0.15);
+  border: 1px solid rgba(184, 109, 255, 0.15);
 }
 
 /* ===================== HERO ===================== */
@@ -327,7 +329,7 @@ h3 {
 }
 
 .button-primary:hover {
-  box-shadow: 0 12px 48px rgba(212, 168, 86, 0.35);
+  box-shadow: 0 12px 48px rgba(184, 109, 255, 0.35);
   background: linear-gradient(135deg, var(--gold-bright), var(--gold));
 }
 
@@ -377,8 +379,8 @@ h3 {
 }
 
 .gold-card {
-  background: linear-gradient(160deg, var(--gold-dark), rgba(61, 46, 21, 0.5));
-  border-color: rgba(212, 168, 86, 0.1);
+  background: linear-gradient(160deg, var(--gold-dark), rgba(42, 21, 74, 0.5));
+  border-color: rgba(184, 109, 255, 0.1);
 }
 
 /* ===================== SECTIONS ===================== */
@@ -458,7 +460,7 @@ h3 {
   margin-bottom: 18px;
   background: linear-gradient(135deg, var(--gold-glow-strong), var(--gold-glow));
   color: var(--gold);
-  border: 1px solid rgba(212, 168, 86, 0.15);
+  border: 1px solid rgba(184, 109, 255, 0.15);
 }
 
 .feature-card p {
@@ -572,7 +574,7 @@ h3 {
   padding: 56px 40px;
   border-radius: var(--radius-xl);
   background:
-    linear-gradient(135deg, rgba(168, 130, 255, 0.08), rgba(212, 168, 86, 0.06)),
+    linear-gradient(135deg, rgba(168, 130, 255, 0.08), rgba(184, 109, 255, 0.06)),
     var(--bg-card);
   border: 1px solid var(--line-strong);
   position: relative;
@@ -587,7 +589,7 @@ h3 {
   width: 360px;
   height: 360px;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(212, 168, 86, 0.12), transparent 65%);
+  background: radial-gradient(circle, rgba(184, 109, 255, 0.12), transparent 65%);
   pointer-events: none;
 }
 
@@ -676,7 +678,7 @@ h3 {
   color: var(--gold);
   font-weight: 600;
   font-size: 0.88rem;
-  border: 1px solid rgba(212, 168, 86, 0.15);
+  border: 1px solid rgba(184, 109, 255, 0.15);
 }
 
 .check-item p {
@@ -732,14 +734,14 @@ h3 {
 }
 
 .date-card:hover {
-  border-color: rgba(212, 168, 86, 0.3);
+  border-color: rgba(184, 109, 255, 0.3);
   background: var(--bg-card-hover);
 }
 
 .date-card.active {
   border-color: var(--gold);
-  background: linear-gradient(160deg, var(--gold-dark), rgba(61, 46, 21, 0.6));
-  box-shadow: 0 0 0 1px rgba(212, 168, 86, 0.2), var(--shadow-gold);
+  background: linear-gradient(160deg, var(--gold-dark), rgba(42, 21, 74, 0.6));
+  box-shadow: 0 0 0 1px rgba(184, 109, 255, 0.2), var(--shadow-gold);
 }
 
 .date-day {
@@ -825,7 +827,7 @@ h3 {
 }
 
 .category-tab:hover {
-  border-color: rgba(212, 168, 86, 0.3);
+  border-color: rgba(184, 109, 255, 0.3);
   color: var(--ink);
 }
 
@@ -1095,8 +1097,8 @@ h3 {
 .slot-card.active,
 .chip-button.active {
   border-color: var(--gold);
-  background: linear-gradient(160deg, var(--gold-dark), rgba(61, 46, 21, 0.3));
-  box-shadow: 0 0 0 1px rgba(212, 168, 86, 0.2), var(--shadow-gold);
+  background: linear-gradient(160deg, var(--gold-dark), rgba(42, 21, 74, 0.3));
+  box-shadow: 0 0 0 1px rgba(184, 109, 255, 0.2), var(--shadow-gold);
 }
 
 .service-card h3 {
@@ -1418,7 +1420,7 @@ h3 {
 .status-pill.gold {
   background: var(--gold-glow);
   color: var(--gold-bright);
-  border-color: rgba(212, 168, 86, 0.1);
+  border-color: rgba(184, 109, 255, 0.1);
 }
 
 .status-pill.warning {

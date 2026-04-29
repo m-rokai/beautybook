@@ -560,7 +560,7 @@ export function BookingExperience({ serviceCategories, addOns, policies }) {
             </p>
             <p style={{ marginTop: 8 }}>
               Your booking code is{' '}
-              <strong style={{ color: 'var(--gold, #d4a856)' }}>{confirmedBooking.code}</strong> —
+              <strong style={{ color: 'var(--gold, #b86dff)' }}>{confirmedBooking.code}</strong> —
               use this to manage your appointment in the customer portal.
               Charged today: ${(confirmedBooking.depositCents / 100).toFixed(
                 confirmedBooking.depositCents % 100 === 0 ? 0 : 2,
