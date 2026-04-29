@@ -437,22 +437,39 @@ export function BookingExperience({ serviceCategories, addOns, policies }) {
           </ScrollShroud>
 
           {selectedDate && (
-            <div>
+            <div className="time-picker">
               <h3>{formatDateLabel(selectedDate)}</h3>
-              <div className="time-grid">
-                {timeSlots.map((slot) => (
-                  <button
-                    key={slot.id}
-                    type="button"
-                    disabled={!slot.available}
-                    className={`slot-card ${selectedTimeId === slot.id ? 'active' : ''} ${!slot.available ? 'booked' : ''}`}
-                    onClick={() => slot.available && setSelectedTimeId(slot.id)}
-                  >
-                    <strong>{slot.label}</strong>
-                    <small>{slot.available ? 'Available' : 'Booked'}</small>
-                  </button>
-                ))}
-              </div>
+              {['morning', 'afternoon', 'evening'].map((period) => {
+                const slots = timeSlots.filter((s) => s.period === period);
+                if (!slots.length) return null;
+                const openCount = slots.filter((s) => s.available).length;
+                const label = period === 'morning' ? 'Morning' : period === 'afternoon' ? 'Afternoon' : 'Evening';
+                return (
+                  <div key={period} className="time-section">
+                    <div className="time-section-header">
+                      <span className="time-section-label">{label}</span>
+                      <span className="time-section-meta">
+                        {openCount === 0 ? 'fully booked' : `${openCount} open`}
+                      </span>
+                    </div>
+                    <div className="time-grid">
+                      {slots.map((slot) => (
+                        <button
+                          key={slot.id}
+                          type="button"
+                          disabled={!slot.available}
+                          className={`slot-pill ${selectedTimeId === slot.id ? 'active' : ''} ${!slot.available ? 'booked' : ''}`}
+                          onClick={() => slot.available && setSelectedTimeId(slot.id)}
+                          aria-pressed={selectedTimeId === slot.id}
+                          aria-label={`${slot.label}${slot.available ? '' : ' (booked)'}`}
+                        >
+                          {slot.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
