@@ -1,9 +1,12 @@
 import { NextResponse } from 'next/server';
 import { listBookings } from '../../../lib/bookings-db';
+import { requireAdmin } from '../../../lib/auth-helpers';
 
-// GET /api/bookings — list all bookings for the admin dashboard.
-// TODO: require auth (Clerk/Auth.js) once an admin login exists.
+// GET /api/bookings — admin-only: list all bookings for the dashboard.
 export async function GET() {
+  const unauthorized = await requireAdmin();
+  if (unauthorized) return unauthorized;
+
   try {
     const rows = await listBookings();
     return NextResponse.json({ bookings: rows });

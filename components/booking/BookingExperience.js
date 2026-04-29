@@ -18,7 +18,73 @@ const initialCustomer = {
   paymentIntent: 'deposit',
 };
 
+// Tracks whether a horizontally-scrollable element is overflowing and which
+// edge the user is touching, so a wrapper can show fade gradients + a swipe
+// hint exactly when there's more content to reveal.
+function useScrollEdges() {
+  const ref = useRef(null);
+  const [edges, setEdges] = useState({
+    overflows: false,
+    atStart: true,
+    atEnd: false,
+    scrolled: false,
+  });
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const update = () => {
+      const { scrollLeft, scrollWidth, clientWidth } = el;
+      const overflows = scrollWidth > clientWidth + 1;
+      const atStart = scrollLeft <= 1;
+      const atEnd = scrollLeft + clientWidth >= scrollWidth - 1;
+      setEdges((prev) => ({
+        overflows,
+        atStart,
+        atEnd,
+        scrolled: prev.scrolled || scrollLeft > 4,
+      }));
+    };
+    update();
+    el.addEventListener('scroll', update, { passive: true });
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => {
+      el.removeEventListener('scroll', update);
+      ro.disconnect();
+    };
+  }, []);
+
+  return [ref, edges];
+}
+
+function ScrollShroud({ edges, children, hintLabel = 'More' }) {
+  const showHint = edges.overflows && !edges.scrolled && !edges.atEnd;
+  return (
+    <div
+      className="scroll-shroud"
+      data-overflows={edges.overflows ? '1' : '0'}
+      data-at-start={edges.atStart ? '1' : '0'}
+      data-at-end={edges.atEnd ? '1' : '0'}
+      data-hint={showHint ? '1' : '0'}
+    >
+      {children}
+      <span className="scroll-shroud-hint" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="9 6 15 12 9 18" />
+        </svg>
+      </span>
+      <span className="visually-hidden" role="status">
+        {edges.overflows ? `Scroll horizontally for more ${hintLabel.toLowerCase()}.` : ''}
+      </span>
+    </div>
+  );
+}
+
 export function BookingExperience({ serviceCategories, addOns, policies }) {
+  const [tabsRef, tabsEdges] = useScrollEdges();
+  const [datesRef, datesEdges] = useScrollEdges();
+
   const [activeCategoryId, setActiveCategoryId] = useState(serviceCategories[0]?.id ?? '');
   const [selectedServiceId, setSelectedServiceId] = useState('');
   const [selectedAddOns, setSelectedAddOns] = useState([]);
@@ -281,18 +347,20 @@ export function BookingExperience({ serviceCategories, addOns, policies }) {
             <h2>Choose Your Treatment</h2>
           </div>
 
-          <div className="category-tabs">
-            {serviceCategories.map((cat) => (
-              <button
-                key={cat.id}
-                type="button"
-                className={`category-tab ${activeCategoryId === cat.id ? 'active' : ''}`}
-                onClick={() => setActiveCategoryId(cat.id)}
-              >
-                {cat.name}
-              </button>
-            ))}
-          </div>
+          <ScrollShroud edges={tabsEdges} hintLabel="categories">
+            <div ref={tabsRef} className="category-tabs">
+              {serviceCategories.map((cat) => (
+                <button
+                  key={cat.id}
+                  type="button"
+                  className={`category-tab ${activeCategoryId === cat.id ? 'active' : ''}`}
+                  onClick={() => setActiveCategoryId(cat.id)}
+                >
+                  {cat.name}
+                </button>
+              ))}
+            </div>
+          </ScrollShroud>
 
           <div className="service-grid">
             {activeCategory?.services.map((service) => (
@@ -347,24 +415,26 @@ export function BookingExperience({ serviceCategories, addOns, policies }) {
             <h2>Pick a Date & Time</h2>
           </div>
 
-          <div className="date-strip">
-            {dates.map((date) => {
-              const key = formatDateKey(date);
-              const isActive = selectedDate && formatDateKey(selectedDate) === key;
-              return (
-                <button
-                  key={key}
-                  type="button"
-                  className={`date-card ${isActive ? 'active' : ''}`}
-                  onClick={() => setSelectedDate(date)}
-                >
-                  <span className="date-day">{format(date, 'EEE')}</span>
-                  <span className="date-num">{format(date, 'd')}</span>
-                  <span className="date-month">{format(date, 'MMM')}</span>
-                </button>
-              );
-            })}
-          </div>
+          <ScrollShroud edges={datesEdges} hintLabel="dates">
+            <div ref={datesRef} className="date-strip">
+              {dates.map((date) => {
+                const key = formatDateKey(date);
+                const isActive = selectedDate && formatDateKey(selectedDate) === key;
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    className={`date-card ${isActive ? 'active' : ''}`}
+                    onClick={() => setSelectedDate(date)}
+                  >
+                    <span className="date-day">{format(date, 'EEE')}</span>
+                    <span className="date-num">{format(date, 'd')}</span>
+                    <span className="date-month">{format(date, 'MMM')}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </ScrollShroud>
 
           {selectedDate && (
             <div>

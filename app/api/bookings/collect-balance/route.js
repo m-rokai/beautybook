@@ -5,6 +5,7 @@ import {
   findBookingByCode,
   updateBookingByCode,
 } from '../../../../lib/bookings-db';
+import { requireAdmin } from '../../../../lib/auth-helpers';
 
 // POST /api/bookings/collect-balance
 // body: { bookingCode }
@@ -13,6 +14,9 @@ import {
 // remaining balance, and persists the link fields back to the booking row.
 // The admin UI receives the updated booking and displays the hosted URL.
 export async function POST(request) {
+  const unauthorized = await requireAdmin();
+  if (unauthorized) return unauthorized;
+
   let body;
   try {
     body = await request.json();

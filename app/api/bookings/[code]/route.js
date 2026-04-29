@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { findBookingByCode, updateBookingByCode } from '../../../../lib/bookings-db';
+import { getSession } from '../../../../lib/auth-helpers';
 
 // GET /api/bookings/:code — used by the customer portal and admin.
 export async function GET(_request, { params }) {
@@ -19,9 +20,11 @@ export async function GET(_request, { params }) {
   }
 }
 
-// PATCH /api/bookings/:code — update status, reschedule, cancel, mark balance paid, etc.
-// Only a whitelist of fields is writable.
-const WRITABLE_FIELDS = new Set([
+// PATCH /api/bookings/:code — used by BOTH admin and the customer portal.
+// The customer portal is authorized by knowledge of the booking code;
+// admins are authorized by their session. Non-admins get a narrower field
+// allowlist and can only flip status to 'cancelled' or 'rescheduled'.
+const ADMIN_WRITABLE_FIELDS = new Set([
   'status',
   'scheduledDate',
   'scheduledTimeId',
@@ -29,6 +32,16 @@ const WRITABLE_FIELDS = new Set([
   'balanceStatus',
   'customerNotes',
 ]);
+
+const CUSTOMER_WRITABLE_FIELDS = new Set([
+  'status',
+  'scheduledDate',
+  'scheduledTimeId',
+  'scheduledTimeLabel',
+  'customerNotes',
+]);
+
+const CUSTOMER_ALLOWED_STATUSES = new Set(['cancelled', 'rescheduled']);
 
 export async function PATCH(request, { params }) {
   const { code } = await params;
@@ -43,9 +56,20 @@ export async function PATCH(request, { params }) {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
   }
 
+  const session = await getSession();
+  const isAdmin = Boolean(session?.user?.isAdmin);
+  const allowed = isAdmin ? ADMIN_WRITABLE_FIELDS : CUSTOMER_WRITABLE_FIELDS;
+
   const patch = {};
   for (const [key, value] of Object.entries(body || {})) {
-    if (WRITABLE_FIELDS.has(key)) patch[key] = value;
+    if (allowed.has(key)) patch[key] = value;
+  }
+
+  if (!isAdmin && patch.status !== undefined && !CUSTOMER_ALLOWED_STATUSES.has(patch.status)) {
+    return NextResponse.json(
+      { error: 'Status change not permitted' },
+      { status: 403 },
+    );
   }
 
   if (Object.keys(patch).length === 0) {

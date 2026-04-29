@@ -6,6 +6,7 @@ import {
   insertBooking,
   updateBookingByCode,
 } from '../../../lib/bookings-db';
+import { sendBookingConfirmation } from '../../../lib/mailer';
 
 // POST /api/payments
 // Atomic flow:
@@ -134,6 +135,11 @@ export async function POST(request) {
       depositSquarePaymentId: payment?.id ?? null,
       depositSquareStatus: payment?.status ?? null,
       depositSquareReceiptUrl: payment?.receiptUrl ?? null,
+    });
+
+    // Best-effort confirmation email — never block the booking on SMTP.
+    sendBookingConfirmation(row).catch((err) => {
+      console.error('[mailer] confirmation send rejected', err);
     });
 
     return NextResponse.json({ ok: true, booking: row });
