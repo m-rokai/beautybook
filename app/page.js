@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { CalendarClock, CreditCard, Gem, Sparkles } from 'lucide-react';
-import { serviceCategories, addOns, dashboardStats, cancellationPolicy } from '../lib/demo-data';
+import { serviceCategories, addOns, cancellationPolicy } from '../lib/demo-data';
 import { SiteHeader } from '../components/SiteHeader';
 
 const features = [
@@ -51,16 +51,16 @@ export default function HomePage() {
 
           <div className="hero-highlights">
             <div className="metric-card">
-              <span className="metric-label">Weekly bookings</span>
-              <strong>{dashboardStats.bookedThisWeek}</strong>
+              <span className="metric-label">By appointment</span>
+              <strong>Tue – Sat</strong>
             </div>
             <div className="metric-card">
-              <span className="metric-label">Client satisfaction</span>
-              <strong>98%</strong>
+              <span className="metric-label">Studio</span>
+              <strong>Las Vegas, NV</strong>
             </div>
             <div className="metric-card">
-              <span className="metric-label">Repeat clients</span>
-              <strong>61%</strong>
+              <span className="metric-label">Booking</span>
+              <strong>Deposit at checkout</strong>
             </div>
           </div>
         </div>

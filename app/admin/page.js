@@ -2,12 +2,6 @@ import { redirect } from 'next/navigation';
 import { SiteHeader } from '../../components/SiteHeader';
 import { AdminDashboard } from '../../components/admin/AdminDashboard';
 import { auth, signOut } from '../../auth';
-import {
-  dashboardStats,
-  weeklyRevenue,
-  customerRoster,
-  retentionAutomations,
-} from '../../lib/demo-data';
 
 export default async function AdminPage() {
   // Defense-in-depth: proxy.js already gates /admin, but a page-level check
@@ -45,12 +39,7 @@ export default async function AdminPage() {
         </form>
       </section>
 
-      <AdminDashboard
-        stats={dashboardStats}
-        revenue={weeklyRevenue}
-        customers={customerRoster}
-        automations={retentionAutomations}
-      />
+      <AdminDashboard />
     </main>
   );
 }

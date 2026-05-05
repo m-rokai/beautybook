@@ -1,20 +1,120 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { fetchBookings, patchBooking, requestBalanceLink } from '../../lib/booking-store';
+import {
+  fetchBookings,
+  patchBooking,
+  requestBalanceLink,
+  cancelBooking,
+} from '../../lib/booking-store';
 
 const formatDollars = (cents) => {
   if (typeof cents !== 'number' || Number.isNaN(cents)) return '$0';
   return `$${(cents / 100).toFixed(cents % 100 === 0 ? 0 : 2)}`;
 };
 
-export function AdminDashboard({ stats, revenue, customers, automations }) {
+// ── Pure derivation helpers from the bookings list ──────────────────────────
+
+const DAY_LABELS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+function startOfWeekMonday(date = new Date()) {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  const day = d.getDay(); // 0=Sun
+  const diff = (day === 0 ? -6 : 1 - day); // back up to Monday
+  d.setDate(d.getDate() + diff);
+  return d;
+}
+
+function inThisWeek(scheduledDateStr) {
+  const start = startOfWeekMonday();
+  const end = new Date(start);
+  end.setDate(end.getDate() + 7);
+  const d = new Date(scheduledDateStr + 'T00:00:00');
+  return d >= start && d < end;
+}
+
+function chargedCents(b) {
+  // What we have actually collected so far for this booking.
+  const deposit = b.depositSquareStatus === 'COMPLETED' ? (b.depositCents || 0) : 0;
+  const balance = b.balanceStatus === 'paid' ? (b.totalCents - b.depositCents) : 0;
+  return deposit + balance;
+}
+
+function deriveStats(bookings) {
+  const live = bookings.filter((b) => b.status !== 'cancelled');
+  const thisWeek = live.filter((b) => inThisWeek(b.scheduledDate));
+  const revenueCents = thisWeek.reduce((sum, b) => sum + chargedCents(b), 0);
+  const pendingBalanceCents = live.reduce(
+    (sum, b) => sum + (b.balanceStatus !== 'paid' ? (b.remainingCents || 0) : 0),
+    0,
+  );
+  const cancelledThisWeek = bookings.filter(
+    (b) => b.status === 'cancelled' && inThisWeek(b.scheduledDate),
+  ).length;
+
+  return [
+    { label: 'This week', value: `$${(revenueCents / 100).toFixed(0)}`, detail: `${thisWeek.length} booking${thisWeek.length === 1 ? '' : 's'} on the calendar.` },
+    { label: 'Bookings this week', value: String(thisWeek.length), detail: 'Active appointments on the books.' },
+    { label: 'Pending balance', value: `$${(pendingBalanceCents / 100).toFixed(0)}`, detail: 'Outstanding balance left to collect.' },
+    { label: 'Cancellations', value: String(cancelledThisWeek), detail: 'Cancelled this week.' },
+  ];
+}
+
+function deriveWeeklyRevenue(bookings) {
+  const start = startOfWeekMonday();
+  const days = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(start);
+    d.setDate(d.getDate() + i);
+    const key = d.toISOString().slice(0, 10);
+    days.push({ key, label: DAY_LABELS[d.getDay()], totalCents: 0, count: 0 });
+  }
+  for (const b of bookings) {
+    if (b.status === 'cancelled') continue;
+    const day = days.find((d) => d.key === b.scheduledDate);
+    if (!day) continue;
+    day.totalCents += chargedCents(b);
+    day.count += 1;
+  }
+  return days;
+}
+
+function deriveClientBook(bookings) {
+  const byEmail = new Map();
+  for (const b of bookings) {
+    if (!b.customerEmail) continue;
+    const key = b.customerEmail.toLowerCase();
+    const entry = byEmail.get(key) ?? {
+      email: b.customerEmail,
+      name: b.customerName,
+      visits: 0,
+      lifetimeCents: 0,
+      lastVisit: null,
+      cancellations: 0,
+    };
+    entry.name = entry.name || b.customerName;
+    entry.visits += 1;
+    entry.lifetimeCents += chargedCents(b);
+    if (b.status === 'cancelled') entry.cancellations += 1;
+    if (!entry.lastVisit || b.scheduledDate > entry.lastVisit) entry.lastVisit = b.scheduledDate;
+    byEmail.set(key, entry);
+  }
+  return Array.from(byEmail.values()).sort(
+    (a, b) => (b.lastVisit || '').localeCompare(a.lastVisit || ''),
+  );
+}
+
+export function AdminDashboard() {
   const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [selectedFilter, setSelectedFilter] = useState('all');
   const [balanceState, setBalanceState] = useState({}); // { [code]: 'loading' | 'error' | null }
   const [balanceError, setBalanceError] = useState({}); // { [code]: string }
+  const [cancelingCode, setCancelingCode] = useState(null); // which row is in confirm step
+  const [cancelState, setCancelState] = useState({}); // { [code]: 'loading' | 'error' | null }
+  const [cancelError, setCancelError] = useState({}); // { [code]: string }
 
   const refreshBookings = async () => {
     try {
@@ -82,6 +182,21 @@ export function AdminDashboard({ stats, revenue, customers, automations }) {
     }
   };
 
+  const handleCancelWithRefund = async (code, refund) => {
+    setCancelState((s) => ({ ...s, [code]: 'loading' }));
+    setCancelError((s) => ({ ...s, [code]: '' }));
+    try {
+      const data = await cancelBooking(code, { refund });
+      replaceBookingInState(data.booking);
+      setCancelState((s) => ({ ...s, [code]: null }));
+      setCancelingCode(null);
+    } catch (error) {
+      console.error('[admin] cancel failed', error);
+      setCancelError((s) => ({ ...s, [code]: error?.message || 'Cancel failed' }));
+      setCancelState((s) => ({ ...s, [code]: 'error' }));
+    }
+  };
+
   const bookingCounts = useMemo(() => {
     const confirmed = bookings.filter((b) => b.status === 'confirmed').length;
     const pending = bookings.filter((b) => b.status === 'pending').length;
@@ -89,12 +204,16 @@ export function AdminDashboard({ stats, revenue, customers, automations }) {
     return { total: bookings.length, confirmed, pending, cancelled };
   }, [bookings]);
 
+  const liveStats = useMemo(() => deriveStats(bookings), [bookings]);
+  const weeklyRevenue = useMemo(() => deriveWeeklyRevenue(bookings), [bookings]);
+  const clientBook = useMemo(() => deriveClientBook(bookings), [bookings]);
+
   return (
     <section className="dashboard-grid">
       <div className="dashboard-column">
-        {/* ── Live stats ── */}
+        {/* ── Live stats — derived from real bookings ── */}
         <div className="stats-grid">
-          {stats.cards.map((card) => (
+          {liveStats.map((card) => (
             <article key={card.label} className="stats-card card">
               <span>{card.label}</span>
               <strong>{card.value}</strong>
@@ -188,7 +307,7 @@ export function AdminDashboard({ stats, revenue, customers, automations }) {
                       {booking.status}
                     </span>
 
-                    {booking.status !== 'cancelled' && (
+                    {booking.status !== 'cancelled' && cancelingCode !== booking.code && (
                       <div className="action-row">
                         <button
                           className="button button-secondary"
@@ -200,11 +319,75 @@ export function AdminDashboard({ stats, revenue, customers, automations }) {
                         <button
                           className="button button-danger"
                           type="button"
-                          onClick={() => handleStatusChange(booking.code, 'cancelled')}
+                          onClick={() => {
+                            setCancelingCode(booking.code);
+                            setCancelError((s) => ({ ...s, [booking.code]: '' }));
+                          }}
                         >
                           Cancel
                         </button>
                       </div>
+                    )}
+
+                    {booking.status !== 'cancelled' && cancelingCode === booking.code && (
+                      <div className="cancel-confirm" role="dialog" aria-label="Cancel booking">
+                        <p className="cancel-confirm-title">Cancel this booking?</p>
+                        <p className="cancel-confirm-meta">
+                          {booking.depositSquarePaymentId
+                            ? `Deposit ${formatDollars(booking.depositCents)} was charged on this card.`
+                            : 'No deposit payment is on file for this booking.'}
+                        </p>
+                        <div className="cancel-confirm-actions">
+                          {booking.depositSquarePaymentId && (
+                            <button
+                              type="button"
+                              className="button button-primary"
+                              disabled={cancelState[booking.code] === 'loading'}
+                              onClick={() =>
+                                handleCancelWithRefund(
+                                  booking.code,
+                                  booking.balanceStatus === 'paid' ? 'full' : 'deposit',
+                                )
+                              }
+                            >
+                              {cancelState[booking.code] === 'loading'
+                                ? 'Refunding…'
+                                : booking.balanceStatus === 'paid'
+                                ? `Refund full ${formatDollars(booking.totalCents)} & cancel`
+                                : `Refund ${formatDollars(booking.depositCents)} & cancel`}
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            className="button button-danger"
+                            disabled={cancelState[booking.code] === 'loading'}
+                            onClick={() => handleCancelWithRefund(booking.code, 'none')}
+                          >
+                            Cancel without refund
+                          </button>
+                          <button
+                            type="button"
+                            className="text-button"
+                            disabled={cancelState[booking.code] === 'loading'}
+                            onClick={() => setCancelingCode(null)}
+                          >
+                            Keep booking
+                          </button>
+                        </div>
+                        {cancelError[booking.code] && (
+                          <p className="payment-error" role="alert">
+                            {cancelError[booking.code]}
+                          </p>
+                        )}
+                      </div>
+                    )}
+
+                    {booking.status === 'cancelled' && booking.refundStatus && (
+                      <p className="refund-note">
+                        Refunded {formatDollars(booking.refundCents || 0)}
+                        {booking.refundStatus === 'pending' && ' (pending)'}
+                        {booking.refundStatus === 'failed' && ' — failed'}
+                      </p>
                     )}
 
                     {booking.status !== 'cancelled' && hasBalance && !balanceIsPaid && (
@@ -262,7 +445,7 @@ export function AdminDashboard({ stats, revenue, customers, automations }) {
           </div>
         </div>
 
-        {/* ── Revenue (sample data) ── */}
+        {/* ── Revenue — live, by day of the current week ── */}
         <div className="card">
           <div className="section-header left">
             <span className="eyebrow">This week</span>
@@ -270,13 +453,19 @@ export function AdminDashboard({ stats, revenue, customers, automations }) {
           </div>
 
           <div className="timeline">
-            {revenue.map((day) => (
-              <div key={day.day} className="timeline-item">
+            {weeklyRevenue.map((day) => (
+              <div key={day.key} className="timeline-item">
                 <div className="timeline-meta">
-                  <strong>{day.day}</strong>
-                  <span className="status-pill gold">{day.total}</span>
+                  <strong>{day.label}</strong>
+                  <span className={`status-pill ${day.totalCents > 0 ? 'gold' : ''}`}>
+                    {formatDollars(day.totalCents)}
+                  </span>
                 </div>
-                <p className="muted" style={{ marginTop: 4, fontSize: '0.88rem' }}>{day.note}</p>
+                <p className="muted" style={{ marginTop: 4, fontSize: '0.88rem' }}>
+                  {day.count === 0
+                    ? 'No appointments.'
+                    : `${day.count} appointment${day.count === 1 ? '' : 's'}.`}
+                </p>
               </div>
             ))}
           </div>
@@ -284,52 +473,42 @@ export function AdminDashboard({ stats, revenue, customers, automations }) {
       </div>
 
       <div className="dashboard-column">
-        {/* ── Client book (sample data) ── */}
+        {/* ── Client book — deduped from real bookings ── */}
         <div className="card">
           <div className="section-header left">
             <span className="eyebrow">Clients</span>
             <h2>Client Book</h2>
           </div>
 
-          <div className="customer-grid">
-            {customers.map((customer) => (
-              <article key={customer.id} className="note-card">
-                <div className="customer-meta">
-                  <div>
-                    <strong>{customer.name}</strong>
-                    <p>{customer.email}</p>
-                  </div>
-                  <span className={`status-pill ${customer.segment === 'VIP' ? 'gold' : ''}`}>
-                    {customer.segment}
-                  </span>
-                </div>
-                <p>{customer.story}</p>
-                <ul className="list-tight" style={{ marginTop: 10 }}>
-                  <li>Lifetime spend: {customer.lifetimeSpend}</li>
-                  <li>Last visit: {customer.lastVisit}</li>
-                  <li>Next step: {customer.nextAction}</li>
-                </ul>
-              </article>
-            ))}
-          </div>
-        </div>
-
-        {/* ── Automations ── */}
-        <div className="card">
-          <div className="section-header left">
-            <span className="eyebrow">Automations</span>
-            <h2>Follow-up Workflows</h2>
-          </div>
-
-          <div className="retention-grid">
-            {automations.map((automation) => (
-              <article key={automation.title} className="note-card">
-                <strong>{automation.title}</strong>
-                <p>{automation.copy}</p>
-                <small>{automation.trigger}</small>
-              </article>
-            ))}
-          </div>
+          {clientBook.length === 0 ? (
+            <p className="muted">No clients yet — they&apos;ll show up here after their first booking.</p>
+          ) : (
+            <div className="customer-grid">
+              {clientBook.map((c) => {
+                const isRepeat = c.visits >= 2;
+                return (
+                  <article key={c.email} className="note-card">
+                    <div className="customer-meta">
+                      <div>
+                        <strong>{c.name || c.email}</strong>
+                        <p>{c.email}</p>
+                      </div>
+                      <span className={`status-pill ${isRepeat ? 'gold' : ''}`}>
+                        {isRepeat ? `${c.visits} visits` : 'New'}
+                      </span>
+                    </div>
+                    <ul className="list-tight" style={{ marginTop: 10 }}>
+                      <li>Lifetime spend: {formatDollars(c.lifetimeCents)}</li>
+                      <li>Last visit: {c.lastVisit || '—'}</li>
+                      {c.cancellations > 0 && (
+                        <li>Cancellations: {c.cancellations}</li>
+                      )}
+                    </ul>
+                  </article>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
     </section>
