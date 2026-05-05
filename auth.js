@@ -4,14 +4,26 @@ import { DrizzleAdapter } from '@auth/drizzle-adapter';
 import { db } from './lib/db';
 import { users, accounts, sessions, verificationTokens } from './lib/db/auth-schema';
 
-const allowedAdminEmails = (process.env.AUTH_ALLOWED_ADMIN_EMAILS || '')
+// Each entry is either an exact email ("ashley@gmail.com") OR a domain match
+// written with a leading "@" ("@muzeoffice.com" → any address at that domain).
+const allowedAdminRules = (process.env.AUTH_ALLOWED_ADMIN_EMAILS || '')
   .split(',')
   .map((e) => e.trim().toLowerCase())
   .filter(Boolean);
 
+const allowedAdminEmails = allowedAdminRules.filter((r) => !r.startsWith('@'));
+const allowedAdminDomains = allowedAdminRules
+  .filter((r) => r.startsWith('@'))
+  .map((r) => r.slice(1));
+
 function isAdminEmail(email) {
-  if (!email || allowedAdminEmails.length === 0) return false;
-  return allowedAdminEmails.includes(email.toLowerCase());
+  if (!email || allowedAdminRules.length === 0) return false;
+  const normalized = email.toLowerCase().trim();
+  if (allowedAdminEmails.includes(normalized)) return true;
+  const at = normalized.lastIndexOf('@');
+  if (at < 0) return false;
+  const domain = normalized.slice(at + 1);
+  return allowedAdminDomains.includes(domain);
 }
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
