@@ -1,6 +1,5 @@
 import { SiteHeader } from '../../../components/SiteHeader';
 import { signIn, auth } from '../../../auth';
-import { AuthError } from 'next-auth';
 import { redirect } from 'next/navigation';
 
 export const metadata = { title: 'Admin sign in' };
@@ -21,12 +20,13 @@ export default async function AdminLoginPage({ searchParams }) {
         redirectTo: '/admin',
       });
     } catch (err) {
-      // Auth.js v5 throws AuthError for things like AccessDenied — translate
-      // those into a graceful query-param redirect. Anything else (including
-      // the NEXT_REDIRECT signal that drives normal navigation) gets re-thrown.
-      if (err instanceof AuthError) {
-        const code = err.type || 'CredentialsSignin';
-        redirect(`/admin/login?error=${encodeURIComponent(code)}`);
+      // Duck-type instead of `instanceof AuthError` — bundled vs. peer copies
+      // of next-auth in the build can yield two different AuthError classes,
+      // making instanceof unreliable. Every Auth.js error sets `.type`; the
+      // NEXT_REDIRECT throw that drives normal navigation does not.
+      const authErrorType = err && typeof err === 'object' && err.type;
+      if (authErrorType && typeof authErrorType === 'string') {
+        redirect(`/admin/login?error=${encodeURIComponent(authErrorType)}`);
       }
       throw err;
     }
