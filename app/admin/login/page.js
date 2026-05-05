@@ -1,5 +1,6 @@
 import { SiteHeader } from '../../../components/SiteHeader';
 import { signIn, auth } from '../../../auth';
+import { AuthError } from 'next-auth';
 import { redirect } from 'next/navigation';
 
 export const metadata = { title: 'Admin sign in' };
@@ -14,10 +15,21 @@ export default async function AdminLoginPage({ searchParams }) {
   async function sendMagicLink(formData) {
     'use server';
     const email = formData.get('email');
-    await signIn('nodemailer', {
-      email,
-      redirectTo: '/admin',
-    });
+    try {
+      await signIn('nodemailer', {
+        email,
+        redirectTo: '/admin',
+      });
+    } catch (err) {
+      // Auth.js v5 throws AuthError for things like AccessDenied — translate
+      // those into a graceful query-param redirect. Anything else (including
+      // the NEXT_REDIRECT signal that drives normal navigation) gets re-thrown.
+      if (err instanceof AuthError) {
+        const code = err.type || 'CredentialsSignin';
+        redirect(`/admin/login?error=${encodeURIComponent(code)}`);
+      }
+      throw err;
+    }
   }
 
   return (
