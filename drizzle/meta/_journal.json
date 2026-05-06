@@ -15,6 +15,13 @@
       "when": 1776478173137,
       "tag": "0001_auth_tables",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1777494139127,
+      "tag": "0002_add_refund_fields",
+      "breakpoints": true
     }
   ]
 }
