@@ -1,7 +1,8 @@
 import Link from 'next/link';
-import { CalendarClock, CreditCard, Gem, Sparkles } from 'lucide-react';
+import { CalendarClock, CreditCard, Gem, Sparkles, Instagram, Camera } from 'lucide-react';
 import { serviceCategories, addOns, cancellationPolicy } from '../lib/demo-data';
 import { SiteHeader } from '../components/SiteHeader';
+import { instagramPosts, INSTAGRAM_HANDLE, INSTAGRAM_URL } from '../lib/instagram';
 
 const features = [
   {
@@ -153,6 +154,61 @@ export default function HomePage() {
         </div>
       </section>
 
+      {/* ── Instagram ── */}
+      <section className="section ig-section">
+        <div className="section-header">
+          <span className="eyebrow">
+            <Instagram size={12} aria-hidden="true" style={{ marginRight: 6, verticalAlign: '-2px' }} />
+            On Instagram
+          </span>
+          <h2>See the work.</h2>
+          <p className="ig-subhead">
+            Real clients, real glow-ups. Follow{' '}
+            <a href={INSTAGRAM_URL} target="_blank" rel="noopener" className="brand-link">
+              @{INSTAGRAM_HANDLE}
+            </a>{' '}
+            for before/afters, treatment day-of-life, and aftercare tips.
+          </p>
+        </div>
+
+        <div className="ig-grid">
+          {instagramPosts.map((post) => (
+            <a
+              key={post.id}
+              href={post.href}
+              target="_blank"
+              rel="noopener"
+              className="ig-tile"
+              aria-label={post.caption}
+            >
+              {post.image ? (
+                <img src={post.image} alt={post.caption} loading="lazy" />
+              ) : (
+                <span className="ig-tile-placeholder" aria-hidden="true">
+                  <Camera size={28} />
+                </span>
+              )}
+              <span className="ig-tile-overlay" aria-hidden="true">
+                <Instagram size={18} />
+                <span>@{INSTAGRAM_HANDLE}</span>
+              </span>
+            </a>
+          ))}
+        </div>
+
+        <div className="hero-actions" style={{ justifyContent: 'center', marginTop: 28 }}>
+          <a
+            href={INSTAGRAM_URL}
+            target="_blank"
+            rel="noopener"
+            className="button button-primary ig-cta"
+          >
+            <Instagram size={16} aria-hidden="true" />
+            Follow @{INSTAGRAM_HANDLE}
+          </a>
+        </div>
+      </section>
+
       {/* ── Cancellation Policy ── */}
       <section className="section split-section">
         <div className="card accent-card">
@@ -217,6 +273,30 @@ export default function HomePage() {
           </div>
         </div>
       </section>
+
+      {/* ── Footer ── */}
+      <footer className="site-footer">
+        <div className="site-footer-row">
+          <div className="brand-block">
+            <div className="brand-mark">AL</div>
+            <div className="brand-copy">
+              <span>Ashley Lacy</span>
+              <strong>Esthetics</strong>
+            </div>
+          </div>
+          <div className="site-footer-links">
+            <Link href="/booking" className="nav-link">Book</Link>
+            <Link href="/portal" className="nav-link">My appointment</Link>
+            <a href={INSTAGRAM_URL} target="_blank" rel="noopener" className="nav-link">
+              <Instagram size={14} aria-hidden="true" style={{ marginRight: 6, verticalAlign: '-2px' }} />
+              Instagram
+            </a>
+          </div>
+        </div>
+        <p className="site-footer-meta">
+          Inside <a href="https://muzeoffice.com" target="_blank" rel="noopener" className="brand-link">Muze Office</a> · 6860 Bermuda Rd Ste 200, Las Vegas NV 89119
+        </p>
+      </footer>
     </main>
   );
 }
