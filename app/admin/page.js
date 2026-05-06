@@ -3,12 +3,15 @@ import Link from 'next/link';
 import { SiteHeader } from '../../components/SiteHeader';
 import { AdminDashboard } from '../../components/admin/AdminDashboard';
 import { auth, signOut } from '../../auth';
+import { listActiveServices } from '../../lib/services-db';
 
 export default async function AdminPage() {
   // Defense-in-depth: proxy.js already gates /admin, but a page-level check
   // prevents regressions if the matcher is ever changed.
   const session = await auth();
   if (!session?.user?.isAdmin) redirect('/admin/login');
+
+  const catalog = await listActiveServices();
 
   async function handleSignOut() {
     'use server';
@@ -51,7 +54,7 @@ export default async function AdminPage() {
         </div>
       </section>
 
-      <AdminDashboard />
+      <AdminDashboard catalog={catalog} />
     </main>
   );
 }

@@ -6,6 +6,7 @@ import {
   patchBooking,
   requestBalanceLink,
   cancelBooking,
+  updateBookingServices,
 } from '../../lib/booking-store';
 
 const formatDollars = (cents) => {
@@ -163,7 +164,8 @@ function deriveClientBook(bookings) {
   );
 }
 
-export function AdminDashboard() {
+export function AdminDashboard({ catalog = [] }) {
+  const catalogById = useMemo(() => new Map(catalog.map((s) => [s.id, s])), [catalog]);
   const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
@@ -173,6 +175,11 @@ export function AdminDashboard() {
   const [cancelingCode, setCancelingCode] = useState(null); // which row is in confirm step
   const [cancelState, setCancelState] = useState({}); // { [code]: 'loading' | 'error' | null }
   const [cancelError, setCancelError] = useState({}); // { [code]: string }
+  const [editingServicesCode, setEditingServicesCode] = useState(null);
+  const [editDraft, setEditDraft] = useState([]); // serviceIds while editing
+  const [editState, setEditState] = useState({}); // { [code]: 'saving' | 'error' | null }
+  const [editError, setEditError] = useState({}); // { [code]: string }
+  const [editResult, setEditResult] = useState({}); // { [code]: { creditOwedCents, delta } }
 
   const refreshBookings = async () => {
     try {
@@ -237,6 +244,53 @@ export function AdminDashboard() {
       replaceBookingInState(updated);
     } catch (error) {
       console.error('[admin] status change failed', error);
+    }
+  };
+
+  const startEditServices = (booking) => {
+    setEditingServicesCode(booking.code);
+    const ids =
+      Array.isArray(booking.serviceIds) && booking.serviceIds.length > 0
+        ? booking.serviceIds
+        : booking.serviceId
+        ? [booking.serviceId]
+        : [];
+    setEditDraft(ids);
+    setEditError((s) => ({ ...s, [booking.code]: '' }));
+    setEditResult((s) => ({ ...s, [booking.code]: null }));
+  };
+
+  const cancelEditServices = () => {
+    setEditingServicesCode(null);
+    setEditDraft([]);
+  };
+
+  const handleAddServiceToEdit = (id) => {
+    if (!id) return;
+    setEditDraft((cur) => (cur.includes(id) ? cur : [...cur, id]));
+  };
+
+  const handleRemoveServiceFromEdit = (id) => {
+    setEditDraft((cur) => cur.filter((x) => x !== id));
+  };
+
+  const saveServiceEdits = async (code) => {
+    if (editDraft.length === 0) {
+      setEditError((s) => ({ ...s, [code]: 'A booking needs at least one service.' }));
+      return;
+    }
+    setEditState((s) => ({ ...s, [code]: 'saving' }));
+    setEditError((s) => ({ ...s, [code]: '' }));
+    try {
+      const data = await updateBookingServices(code, { serviceIds: editDraft });
+      replaceBookingInState(data.booking);
+      setEditResult((s) => ({ ...s, [code]: { creditOwedCents: data.creditOwedCents, delta: data.delta } }));
+      setEditState((s) => ({ ...s, [code]: null }));
+      setEditingServicesCode(null);
+    } catch (err) {
+      console.error('[admin] edit services failed', err);
+      setEditError((s) => ({ ...s, [code]: err?.message || 'Save failed' }));
+      setEditState((s) => ({ ...s, [code]: 'error' }));
     }
   };
 
@@ -410,7 +464,7 @@ export function AdminDashboard() {
                       {booking.status}
                     </span>
 
-                    {booking.status !== 'cancelled' && cancelingCode !== booking.code && (
+                    {booking.status !== 'cancelled' && cancelingCode !== booking.code && editingServicesCode !== booking.code && (
                       <div className="action-row">
                         <button
                           className="button button-secondary"
@@ -418,6 +472,13 @@ export function AdminDashboard() {
                           onClick={() => handleStatusChange(booking.code, 'confirmed')}
                         >
                           Confirm
+                        </button>
+                        <button
+                          className="button button-secondary"
+                          type="button"
+                          onClick={() => startEditServices(booking)}
+                        >
+                          Edit services
                         </button>
                         <button
                           className="button button-danger"
@@ -430,6 +491,122 @@ export function AdminDashboard() {
                           Cancel
                         </button>
                       </div>
+                    )}
+
+                    {editingServicesCode === booking.code && (
+                      <div className="services-edit-panel" role="dialog" aria-label="Edit booking services">
+                        <p className="cancel-confirm-title">Edit services on this booking</p>
+                        <p className="cancel-confirm-meta">
+                          Adjusting changes the total. The deposit already charged ({formatDollars(booking.depositCents)}) stays on the card — any new balance is collected at the appointment, and any overage shows up as credit owed for refund.
+                        </p>
+
+                        {editDraft.length === 0 ? (
+                          <p className="muted" style={{ margin: '8px 0' }}>No services selected — at least one is required.</p>
+                        ) : (
+                          <ul className="services-edit-list">
+                            {editDraft.map((id) => {
+                              const svc = catalogById.get(id);
+                              return (
+                                <li key={id} className="services-edit-row">
+                                  <span>
+                                    <strong>{svc?.name ?? id}</strong>
+                                    {svc && (
+                                      <small className="muted tabular-nums">
+                                        {' '}· {svc.duration} · {svc.price}
+                                      </small>
+                                    )}
+                                    {!svc && <small className="muted"> · archived</small>}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    className="text-button"
+                                    onClick={() => handleRemoveServiceFromEdit(id)}
+                                    aria-label={`Remove ${svc?.name ?? id}`}
+                                  >
+                                    × Remove
+                                  </button>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        )}
+
+                        <div className="field" style={{ marginTop: 8 }}>
+                          <label htmlFor={`add-svc-${booking.code}`}>Add a service</label>
+                          <select
+                            id={`add-svc-${booking.code}`}
+                            value=""
+                            onChange={(e) => {
+                              handleAddServiceToEdit(e.target.value);
+                              e.target.value = '';
+                            }}
+                          >
+                            <option value="">— Pick a service to add —</option>
+                            {catalog
+                              .filter((s) => !editDraft.includes(s.id))
+                              .map((s) => (
+                                <option key={s.id} value={s.id}>
+                                  {s.name} · {s.price}
+                                </option>
+                              ))}
+                          </select>
+                        </div>
+
+                        {(() => {
+                          const newTotal = editDraft.reduce(
+                            (sum, id) => sum + (catalogById.get(id)?.priceCents ?? 0),
+                            0,
+                          );
+                          const newRemaining = Math.max(0, newTotal - booking.depositCents);
+                          const credit = Math.max(0, booking.depositCents - newTotal);
+                          return (
+                            <div className="services-edit-summary">
+                              <div><span className="muted">Service total</span><strong>{formatDollars(newTotal)}</strong></div>
+                              <div><span className="muted">Deposit on card</span><strong>{formatDollars(booking.depositCents)}</strong></div>
+                              {newRemaining > 0 && (
+                                <div><span className="muted">Balance to collect</span><strong>{formatDollars(newRemaining)}</strong></div>
+                              )}
+                              {credit > 0 && (
+                                <div className="services-edit-credit">
+                                  <span>Credit owed (refund manually)</span>
+                                  <strong>{formatDollars(credit)}</strong>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
+
+                        {editError[booking.code] && (
+                          <p className="payment-error">{editError[booking.code]}</p>
+                        )}
+
+                        <div className="action-row">
+                          <button
+                            type="button"
+                            className="button button-secondary"
+                            onClick={cancelEditServices}
+                            disabled={editState[booking.code] === 'saving'}
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            className="button button-primary"
+                            onClick={() => saveServiceEdits(booking.code)}
+                            disabled={editState[booking.code] === 'saving' || editDraft.length === 0}
+                          >
+                            {editState[booking.code] === 'saving' ? 'Saving…' : 'Save changes'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {editResult[booking.code]?.creditOwedCents > 0 && (
+                      <p className="services-edit-flag">
+                        Heads-up: deposit exceeds new total by{' '}
+                        <strong>{formatDollars(editResult[booking.code].creditOwedCents)}</strong>.
+                        Issue a partial refund in Square if appropriate.
+                      </p>
                     )}
 
                     {booking.status !== 'cancelled' && cancelingCode === booking.code && (

@@ -3213,3 +3213,184 @@ h3 {
     justify-content: flex-end;
   }
 }
+
+/* ===================== SOCIAL BUTTONS ===================== */
+
+.social-section {
+  display: grid;
+  gap: 28px;
+}
+
+.social-subhead {
+  margin: 12px auto 0;
+  max-width: 540px;
+  color: var(--ink-muted);
+  font-size: 1rem;
+  line-height: 1.65;
+  text-wrap: pretty;
+}
+
+.social-buttons {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 14px;
+  max-width: 720px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.social-button {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 18px 22px;
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--line-strong);
+  background: var(--bg-card);
+  color: var(--ink);
+  text-decoration: none;
+  transition-property: transform, border-color, background, box-shadow;
+  transition-duration: 0.25s;
+  transition-timing-function: var(--ease-out);
+  min-height: 80px;
+}
+
+.social-button:hover {
+  transform: translateY(-2px);
+  border-color: rgba(184, 109, 255, 0.35);
+  box-shadow: var(--shadow-md);
+}
+
+.social-button:active {
+  transform: scale(0.98);
+}
+
+.social-button-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  flex-shrink: 0;
+  color: var(--bg);
+  box-shadow: var(--shadow-gold);
+}
+
+.social-button-instagram .social-button-icon {
+  background: linear-gradient(135deg, #f09433 0%, #e6683c 25%, #dc2743 50%, #cc2366 75%, #bc1888 100%);
+  box-shadow: 0 8px 24px rgba(220, 39, 67, 0.35);
+}
+
+.social-button-groupon .social-button-icon {
+  background: linear-gradient(135deg, #53a318 0%, #2a8000 100%);
+  box-shadow: 0 8px 24px rgba(83, 163, 24, 0.35);
+}
+
+.social-button-body {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.social-button-body small {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--ink-muted);
+}
+
+.social-button-body strong {
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+  font-weight: 500;
+  color: var(--ink);
+  letter-spacing: 0.005em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ===================== EDIT-SERVICES PANEL ===================== */
+
+.services-edit-panel {
+  margin-top: 8px;
+  padding: 14px 16px;
+  border-radius: var(--radius-md);
+  background: var(--bg-raised);
+  border: 1px solid var(--line-strong);
+  box-shadow: var(--shadow-sm);
+  display: grid;
+  gap: 12px;
+  animation: rise 0.25s var(--ease-out) both;
+}
+
+.services-edit-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.services-edit-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+  border: 1px solid var(--line);
+  font-size: 0.9rem;
+}
+
+.services-edit-row strong {
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.services-edit-summary {
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+  border: 1px solid var(--line);
+  font-size: 0.88rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.services-edit-summary > div {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.services-edit-summary strong {
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.services-edit-credit {
+  margin-top: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line-strong);
+  color: var(--warning);
+}
+
+.services-edit-credit strong {
+  color: var(--warning) !important;
+}
+
+.services-edit-flag {
+  margin: 6px 0 0;
+  padding: 8px 12px;
+  border-radius: var(--radius-md);
+  background: var(--warning-dark);
+  color: var(--warning);
+  font-size: 0.82rem;
+  border: 1px solid rgba(248, 113, 113, 0.2);
+  font-variant-numeric: tabular-nums;
+}
