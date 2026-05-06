@@ -192,7 +192,16 @@ export default function HomePage() {
             <h2>Inside Muze Office.</h2>
           </div>
           <address className="location-block">
-            <strong>Muze Office</strong>
+            <strong>
+              <a
+                href="https://muzeoffice.com"
+                target="_blank"
+                rel="noopener"
+                className="brand-link"
+              >
+                Muze Office
+              </a>
+            </strong>
             <p>6860 Bermuda Rd, Suite 200</p>
             <p>Las Vegas, NV 89119</p>
           </address>
