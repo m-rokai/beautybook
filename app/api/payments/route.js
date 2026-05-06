@@ -7,6 +7,7 @@ import {
   updateBookingByCode,
 } from '../../../lib/bookings-db';
 import { sendBookingConfirmation } from '../../../lib/mailer';
+import { truncate } from '../../../lib/pricing';
 
 // POST /api/payments
 // Atomic flow:
@@ -62,6 +63,13 @@ export async function POST(request) {
     }
   }
 
+  // serviceIds is the multi-select array. Fall back to [serviceId] for legacy
+  // single-service callers so existing integrations keep working.
+  const serviceIds =
+    Array.isArray(booking.serviceIds) && booking.serviceIds.length > 0
+      ? booking.serviceIds.filter((id) => typeof id === 'string' && id.length > 0)
+      : [booking.serviceId];
+
   const chargeCents =
     booking.paymentIntent === 'full' ? booking.totalCents : booking.depositCents;
 
@@ -96,7 +104,12 @@ export async function POST(request) {
       },
       locationId,
       referenceId: code,
-      note: `${booking.serviceName} — ${booking.scheduledDate} ${booking.scheduledTimeLabel}`,
+      // Square caps note at 500 chars — multi-service joined names can grow,
+      // so truncate defensively.
+      note: truncate(
+        `${booking.serviceName} — ${booking.scheduledDate} ${booking.scheduledTimeLabel}`,
+        480,
+      ),
       buyerEmailAddress: booking.customerEmail,
     });
     payment = serializeSquare(response.payment);
@@ -116,8 +129,9 @@ export async function POST(request) {
   try {
     const row = await insertBooking({
       code,
-      serviceId: booking.serviceId,
+      serviceId: serviceIds[0],
       serviceName: booking.serviceName,
+      serviceIds,
       addOnNames: Array.isArray(booking.addOnNames) ? booking.addOnNames : [],
       scheduledDate: booking.scheduledDate,
       scheduledTimeId: booking.scheduledTimeId,

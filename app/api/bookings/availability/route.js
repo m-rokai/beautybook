@@ -20,19 +20,23 @@ const SLOT_IDS = (() => {
 
 const serviceById = new Map(catalog.map((s) => [s.id, s]));
 
-// GET /api/bookings/availability?date=YYYY-MM-DD&serviceId=customized-facial
+// GET /api/bookings/availability?date=YYYY-MM-DD&serviceIds=a,b,c
+//   (legacy: ?serviceId=a — kept for any callers still on the single-select API)
 //
-// Returns the slot ids that should be blocked for the given candidate service.
-// A slot s is blocked iff the candidate's interval [s, s+candidateDuration)
-// overlaps any existing booking's interval.
-//
-// If serviceId is missing, candidate duration defaults to 30 min — which still
-// correctly expands existing multi-slot bookings into every grid-slot they
-// occupy (an improvement over single-id matching).
+// Returns the slot ids that should be blocked for the candidate booking. A
+// slot s is blocked iff the candidate's interval [s, s+candidateDuration)
+// overlaps any existing booking's interval. candidateDuration is the SUM of
+// the durations of every service the customer has selected — back-to-back
+// execution is the default and matches Ashley's solo-practitioner model.
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
   const date = searchParams.get('date');
-  const serviceId = searchParams.get('serviceId');
+  const serviceIdsParam = searchParams.get('serviceIds');
+  const candidateIds = serviceIdsParam
+    ? serviceIdsParam.split(',').filter(Boolean)
+    : searchParams.get('serviceId')
+      ? [searchParams.get('serviceId')]
+      : [];
 
   if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
     return NextResponse.json(
@@ -44,15 +48,27 @@ export async function GET(request) {
   try {
     const rows = await getBookedIntervalsForDate(date);
     const existing = rows.map((row) => {
-      const svc = serviceById.get(row.serviceId);
-      return {
-        startId: row.timeId,
-        durationMin: parseDurationMinutes(svc?.duration),
-      };
+      // Use full service_ids array when present; fall back to the primary
+      // serviceId for legacy single-service rows that pre-date 0003.
+      const ids = Array.isArray(row.serviceIds) && row.serviceIds.length > 0
+        ? row.serviceIds
+        : [row.serviceId];
+      const durationMin = ids.reduce(
+        (sum, id) => sum + parseDurationMinutes(serviceById.get(id)?.duration),
+        0,
+      );
+      return { startId: row.timeId, durationMin };
     });
 
-    const candidate = serviceId ? serviceById.get(serviceId) : null;
-    const candidateDurationMin = parseDurationMinutes(candidate?.duration);
+    // Sum durations across every selected service. Empty selection falls
+    // back to a 30-min minimum so we still expand existing multi-slot rows.
+    const candidateDurationMin =
+      candidateIds.length > 0
+        ? candidateIds.reduce(
+            (sum, id) => sum + parseDurationMinutes(serviceById.get(id)?.duration),
+            0,
+          )
+        : parseDurationMinutes(undefined);
 
     const takenTimeIds = blockedStartSlots(SLOT_IDS, candidateDurationMin, existing);
 

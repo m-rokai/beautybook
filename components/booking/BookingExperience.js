@@ -9,6 +9,7 @@ import {
   formatDateKey,
   formatDateLabel,
 } from '../../lib/booking-store';
+import { depositForTotalCents, cancellationForTotalCents } from '../../lib/pricing';
 
 const initialCustomer = {
   name: '',
@@ -81,12 +82,26 @@ function ScrollShroud({ edges, children, hintLabel = 'More' }) {
   );
 }
 
+const STEPS = [
+  { id: 'services', label: 'Service' },
+  { id: 'addons', label: 'Add-ons' },
+  { id: 'time', label: 'When' },
+  { id: 'details', label: 'You' },
+  { id: 'review', label: 'Pay' },
+];
+
 export function BookingExperience({ serviceCategories, addOns, policies }) {
   const [tabsRef, tabsEdges] = useScrollEdges();
   const [datesRef, datesEdges] = useScrollEdges();
 
+  // ── Wizard step state ──
+  // currentStep is 0-indexed across STEPS. direction controls slide animation.
+  const [currentStep, setCurrentStep] = useState(0);
+  const [direction, setDirection] = useState('forward');
+
+  // ── Booking state ──
   const [activeCategoryId, setActiveCategoryId] = useState(serviceCategories[0]?.id ?? '');
-  const [selectedServiceId, setSelectedServiceId] = useState('');
+  const [selectedServiceIds, setSelectedServiceIds] = useState([]);
   const [selectedAddOns, setSelectedAddOns] = useState([]);
 
   const [dates, setDates] = useState([]);
@@ -104,50 +119,49 @@ export function BookingExperience({ serviceCategories, addOns, policies }) {
   const [paymentError, setPaymentError] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
 
+  // ── Derived ──
   const activeCategory = useMemo(
     () => serviceCategories.find((c) => c.id === activeCategoryId),
-    [activeCategoryId, serviceCategories]
+    [activeCategoryId, serviceCategories],
   );
 
   const allServices = useMemo(
     () => serviceCategories.flatMap((c) => c.services),
-    [serviceCategories]
+    [serviceCategories],
   );
 
-  const selectedService = useMemo(
-    () => allServices.find((s) => s.id === selectedServiceId),
-    [allServices, selectedServiceId]
+  const selectedServices = useMemo(
+    () => selectedServiceIds.map((id) => allServices.find((s) => s.id === id)).filter(Boolean),
+    [allServices, selectedServiceIds],
   );
 
   const selectedAddOnItems = useMemo(
     () => addOns.filter((a) => selectedAddOns.includes(a.id)),
-    [addOns, selectedAddOns]
+    [addOns, selectedAddOns],
   );
 
-  const totalPrice = useMemo(() => {
-    const servicePrice = selectedService?.priceNum ?? 0;
-    const addOnTotal = selectedAddOnItems.reduce((sum, a) => sum + a.priceNum, 0);
-    return servicePrice + addOnTotal;
-  }, [selectedService, selectedAddOnItems]);
+  const totalCents = useMemo(() => {
+    const services = selectedServices.reduce((sum, s) => sum + (s?.priceNum ?? 0) * 100, 0);
+    const addons = selectedAddOnItems.reduce((sum, a) => sum + a.priceNum * 100, 0);
+    return services + addons;
+  }, [selectedServices, selectedAddOnItems]);
 
-  // Parse "$25" → 25. Service deposits are strings in demo-data.
-  const parseMoney = (str) => {
-    const n = parseInt(String(str || '').replace(/[^0-9]/g, ''), 10);
-    return Number.isNaN(n) ? 0 : n;
-  };
+  const depositCents = useMemo(() => depositForTotalCents(totalCents), [totalCents]);
+  const cancellationCents = useMemo(() => cancellationForTotalCents(totalCents), [totalCents]);
+  const chargeCents = customer.paymentIntent === 'full' ? totalCents : depositCents;
 
-  const depositDollars = selectedService ? parseMoney(selectedService.deposit) : 0;
-  const chargeDollars = customer.paymentIntent === 'full' ? totalPrice : depositDollars;
-  const chargeCents = chargeDollars * 100;
+  const selectedSlot = timeSlots.find((s) => s.id === selectedTimeId);
 
+  // ── Effects ──
   useEffect(() => {
     const available = getAvailableDates(14);
     setDates(available);
     if (available.length > 0) setSelectedDate(available[0]);
   }, []);
 
-  // Fetch taken slots for the selected date + service. Refetches whenever the
-  // service changes too, since a longer service may block more start slots.
+  // Refetch availability when date or service-set changes — total candidate
+  // duration is the sum of every selected service, so adding/removing one
+  // shifts which start slots are valid.
   useEffect(() => {
     if (!selectedDate) return;
     let cancelled = false;
@@ -155,7 +169,7 @@ export function BookingExperience({ serviceCategories, addOns, policies }) {
       try {
         const takenIds = await fetchTakenSlotsForDate(
           formatDateKey(selectedDate),
-          selectedServiceId || undefined,
+          selectedServiceIds,
         );
         if (cancelled) return;
         const slots = getBaseTimeSlots().map((slot) => ({
@@ -163,7 +177,6 @@ export function BookingExperience({ serviceCategories, addOns, policies }) {
           available: !takenIds.includes(slot.id),
         }));
         setTimeSlots(slots);
-        // Keep the user's prior pick if it's still valid; otherwise jump to the first open one.
         setSelectedTimeId((prev) => {
           if (prev && slots.find((s) => s.id === prev && s.available)) return prev;
           return slots.find((s) => s.available)?.id ?? '';
@@ -178,16 +191,9 @@ export function BookingExperience({ serviceCategories, addOns, policies }) {
     return () => {
       cancelled = true;
     };
-  }, [selectedDate, selectedServiceId]);
+  }, [selectedDate, selectedServiceIds]);
 
-  // auto-select first service when switching category
-  useEffect(() => {
-    if (activeCategory?.services.length > 0) {
-      setSelectedServiceId(activeCategory.services[0].id);
-    }
-  }, [activeCategoryId, activeCategory]);
-
-  // Load Square Web Payments SDK and mount the card form
+  // Square SDK: load + mount card form once on mount.
   useEffect(() => {
     const appId = process.env.NEXT_PUBLIC_SQUARE_APPLICATION_ID;
     const locationId = process.env.NEXT_PUBLIC_SQUARE_LOCATION_ID;
@@ -195,7 +201,7 @@ export function BookingExperience({ serviceCategories, addOns, policies }) {
     if (!appId || !locationId) {
       setPaymentError(
         "We can't take payment right now — please try again in a moment. " +
-          "If you keep seeing this, hard-refresh the page (Shift-Reload) or contact us.",
+          'If you keep seeing this, hard-refresh the page (Shift-Reload) or contact us.',
       );
       console.error('[booking] Square config missing', { appId: !!appId, locationId: !!locationId });
       return;
@@ -214,7 +220,6 @@ export function BookingExperience({ serviceCategories, addOns, policies }) {
           return;
         }
         const script = document.createElement('script');
-        // Square serves two CDNs: sandbox and production. The app ID prefix tells us which to load.
         const isSandbox = appId.startsWith('sandbox-');
         script.src = isSandbox
           ? 'https://sandbox.web.squarecdn.com/v1/square.js'
@@ -255,10 +260,13 @@ export function BookingExperience({ serviceCategories, addOns, policies }) {
     };
   }, []);
 
+  // ── Handlers ──
+  const toggleService = (id) => {
+    setSelectedServiceIds((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]));
+  };
+
   const toggleAddOn = (id) => {
-    setSelectedAddOns((current) =>
-      current.includes(id) ? current.filter((a) => a !== id) : [...current, id]
-    );
+    setSelectedAddOns((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]));
   };
 
   const handleCustomerChange = (event) => {
@@ -266,11 +274,49 @@ export function BookingExperience({ serviceCategories, addOns, policies }) {
     setCustomer((c) => ({ ...c, [name]: value }));
   };
 
+  // ── Step validation ──
+  const stepValid = (idx) => {
+    switch (idx) {
+      case 0: return selectedServiceIds.length > 0;
+      case 1: return true; // add-ons optional
+      case 2: return Boolean(selectedDate && selectedTimeId);
+      case 3: return Boolean(customer.name.trim() && /\S+@\S+\.\S+/.test(customer.email));
+      case 4: return paymentReady && agreedToPolicy && chargeCents > 0;
+      default: return true;
+    }
+  };
+
+  const goNext = () => {
+    if (!stepValid(currentStep)) return;
+    setDirection('forward');
+    setCurrentStep((s) => Math.min(STEPS.length - 1, s + 1));
+  };
+
+  const goBack = () => {
+    setDirection('backward');
+    setCurrentStep((s) => Math.max(0, s - 1));
+  };
+
+  const goToStep = (idx) => {
+    // Tappable progress bar — only allow jumping to a step ≤ current (back) or
+    // to the next step if current is valid.
+    if (idx === currentStep) return;
+    if (idx < currentStep) {
+      setDirection('backward');
+      setCurrentStep(idx);
+      return;
+    }
+    if (idx === currentStep + 1 && stepValid(currentStep)) {
+      setDirection('forward');
+      setCurrentStep(idx);
+    }
+  };
+
   const handleSubmit = async (event) => {
-    event.preventDefault();
+    event?.preventDefault?.();
     setPaymentError('');
 
-    if (!selectedService || !selectedDate || !selectedTimeId || !customer.name || !customer.email || !agreedToPolicy) return;
+    if (!stepValid(4)) return;
     if (!cardRef.current) {
       setPaymentError('Card form is not ready yet.');
       return;
@@ -286,20 +332,15 @@ export function BookingExperience({ serviceCategories, addOns, policies }) {
     setIsProcessing(true);
 
     try {
-      // 1. Tokenize the card with Square
       const tokenResult = await cardRef.current.tokenize();
       if (tokenResult.status !== 'OK') {
         const detail =
-          tokenResult.errors?.map((e) => e.message).join(', ') ||
-          'Card could not be validated.';
+          tokenResult.errors?.map((e) => e.message).join(', ') || 'Card could not be validated.';
         throw new Error(detail);
       }
 
-      // 2. Charge + persist atomically via our server route. The server generates
-      //    the booking code, charges Square, then inserts the booking row.
-      const totalCents = totalPrice * 100;
-      const depositCents = chargeCents;
-      const remainingCents = Math.max(0, totalCents - depositCents);
+      const remainingCents = Math.max(0, totalCents - chargeCents);
+      const serviceNameJoined = selectedServices.map((s) => s.name).join(' + ');
 
       const res = await fetch('/api/payments', {
         method: 'POST',
@@ -307,8 +348,9 @@ export function BookingExperience({ serviceCategories, addOns, policies }) {
         body: JSON.stringify({
           sourceId: tokenResult.token,
           booking: {
-            serviceId: selectedService.id,
-            serviceName: selectedService.name,
+            serviceId: selectedServiceIds[0],
+            serviceName: serviceNameJoined,
+            serviceIds: selectedServiceIds,
             addOnNames: selectedAddOnItems.map((a) => a.name),
             scheduledDate: formatDateKey(selectedDate),
             scheduledTimeId: slot.id,
@@ -319,7 +361,7 @@ export function BookingExperience({ serviceCategories, addOns, policies }) {
             customerNotes: customer.notes,
             paymentIntent: customer.paymentIntent,
             totalCents,
-            depositCents,
+            depositCents: chargeCents,
             remainingCents,
           },
         }),
@@ -331,15 +373,8 @@ export function BookingExperience({ serviceCategories, addOns, policies }) {
       }
 
       setConfirmedBooking(payload.booking);
-
-      // Refresh taken slots so the UI reflects the new booking immediately.
-      const takenIds = await fetchTakenSlotsForDate(
-        formatDateKey(selectedDate),
-        selectedServiceId || undefined,
-      );
-      setTimeSlots(
-        getBaseTimeSlots().map((s) => ({ ...s, available: !takenIds.includes(s.id) })),
-      );
+      setDirection('forward');
+      setCurrentStep(STEPS.length); // sentinel: confirmation screen
     } catch (error) {
       console.error('[booking] payment failed', error);
       setPaymentError(error?.message || 'Payment failed. Please try again.');
@@ -348,303 +383,413 @@ export function BookingExperience({ serviceCategories, addOns, policies }) {
     }
   };
 
-  const selectedSlot = timeSlots.find((s) => s.id === selectedTimeId);
+  // ── Confirmation screen ──
+  if (confirmedBooking) {
+    return (
+      <section className="wizard">
+        <div className="wizard-step wizard-confirmation">
+          <div className="wizard-confirm-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+          </div>
+          <span className="eyebrow">Booking confirmed</span>
+          <h1>You&rsquo;re booked.</h1>
+          <p className="wizard-confirm-meta">
+            {confirmedBooking.customerName}, your appointment is locked in. We just emailed your confirmation to {confirmedBooking.customerEmail}.
+          </p>
+          <div className="wizard-confirm-card card">
+            <div className="wizard-confirm-row">
+              <span>Reference</span>
+              <strong className="wizard-confirm-code">{confirmedBooking.code}</strong>
+            </div>
+            <div className="wizard-confirm-row">
+              <span>Service</span>
+              <strong>{confirmedBooking.serviceName}</strong>
+            </div>
+            {confirmedBooking.addOnNames?.length > 0 && (
+              <div className="wizard-confirm-row">
+                <span>Add-ons</span>
+                <strong>{confirmedBooking.addOnNames.join(', ')}</strong>
+              </div>
+            )}
+            <div className="wizard-confirm-row">
+              <span>When</span>
+              <strong>{confirmedBooking.scheduledDate} · {confirmedBooking.scheduledTimeLabel}</strong>
+            </div>
+            <div className="wizard-confirm-row">
+              <span>Charged today</span>
+              <strong>${(confirmedBooking.depositCents / 100).toFixed(confirmedBooking.depositCents % 100 === 0 ? 0 : 2)}</strong>
+            </div>
+            {confirmedBooking.remainingCents > 0 && (
+              <div className="wizard-confirm-row">
+                <span>Balance at appointment</span>
+                <strong>${(confirmedBooking.remainingCents / 100).toFixed(confirmedBooking.remainingCents % 100 === 0 ? 0 : 2)}</strong>
+              </div>
+            )}
+          </div>
+          <p className="wizard-confirm-meta muted">
+            Need to manage your booking? Use your reference code at the customer portal.
+          </p>
+        </div>
+      </section>
+    );
+  }
+
+  // ── Wizard render ──
+  const stepClassName = `wizard-step wizard-step--${direction}`;
 
   return (
-    <section className="booking-grid">
-      <form className="card booking-form" onSubmit={handleSubmit}>
-        {/* ── Step 1: Category + Service ── */}
-        <div className="stack">
-          <div className="section-header left">
-            <span className="eyebrow">Step 1</span>
-            <h2>Choose Your Treatment</h2>
-          </div>
-
-          <ScrollShroud edges={tabsEdges} hintLabel="categories">
-            <div ref={tabsRef} className="category-tabs">
-              {serviceCategories.map((cat) => (
-                <button
-                  key={cat.id}
-                  type="button"
-                  className={`category-tab ${activeCategoryId === cat.id ? 'active' : ''}`}
-                  onClick={() => setActiveCategoryId(cat.id)}
-                >
-                  {cat.name}
-                </button>
-              ))}
-            </div>
-          </ScrollShroud>
-
-          <div className="service-grid">
-            {activeCategory?.services.map((service) => (
+    <section className="wizard">
+      {/* Progress bar */}
+      <ol className="wizard-progress" aria-label="Booking progress">
+        {STEPS.map((step, idx) => {
+          const completed = idx < currentStep;
+          const active = idx === currentStep;
+          const reachable = idx <= currentStep || (idx === currentStep + 1 && stepValid(currentStep));
+          return (
+            <li
+              key={step.id}
+              className={`wizard-progress-step ${active ? 'is-active' : ''} ${completed ? 'is-done' : ''}`}
+            >
               <button
-                key={service.id}
                 type="button"
-                className={`service-card ${selectedServiceId === service.id ? 'active' : ''}`}
-                onClick={() => setSelectedServiceId(service.id)}
+                className="wizard-progress-button"
+                onClick={() => goToStep(idx)}
+                disabled={!reachable}
+                aria-current={active ? 'step' : undefined}
               >
-                <h3>{service.name}</h3>
-                <p>{service.description}</p>
-                <div className="service-meta">
-                  <span>{service.duration}</span>
-                  <strong>{service.price}</strong>
-                </div>
+                <span className="wizard-progress-dot" aria-hidden="true">
+                  {completed ? (
+                    <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                  ) : (
+                    idx + 1
+                  )}
+                </span>
+                <span className="wizard-progress-label">{step.label}</span>
               </button>
-            ))}
-          </div>
-        </div>
+            </li>
+          );
+        })}
+      </ol>
 
-        {/* ── Add-Ons ── */}
-        <div className="stack">
-          <div className="section-header left">
-            <span className="eyebrow">Optional</span>
-            <h2>Add-Ons</h2>
-          </div>
+      <form className="wizard-form" onSubmit={handleSubmit} noValidate>
+        <div className="wizard-stage">
+          <div key={currentStep} className={stepClassName}>
+            {/* Step 1 — Services */}
+            {currentStep === 0 && (
+              <div className="wizard-pane">
+                <header className="wizard-pane-header">
+                  <span className="eyebrow">Step 1 of {STEPS.length}</span>
+                  <h2>What would you like?</h2>
+                  <p className="muted">Tap any number of services. Pricing updates as you add.</p>
+                </header>
 
-          <div className="addon-grid">
-            {addOns.map((addon) => (
-              <label
-                key={addon.id}
-                className={`addon-card ${selectedAddOns.includes(addon.id) ? 'active' : ''}`}
-              >
-                <input
-                  type="checkbox"
-                  checked={selectedAddOns.includes(addon.id)}
-                  onChange={() => toggleAddOn(addon.id)}
-                />
-                <div className="addon-info">
-                  <strong>{addon.name}</strong>
-                  <span>{addon.price}</span>
+                <ScrollShroud edges={tabsEdges} hintLabel="categories">
+                  <div ref={tabsRef} className="category-tabs">
+                    {serviceCategories.map((cat) => (
+                      <button
+                        key={cat.id}
+                        type="button"
+                        className={`category-tab ${activeCategoryId === cat.id ? 'active' : ''}`}
+                        onClick={() => setActiveCategoryId(cat.id)}
+                      >
+                        {cat.name}
+                      </button>
+                    ))}
+                  </div>
+                </ScrollShroud>
+
+                <div className="service-grid">
+                  {activeCategory?.services.map((service) => {
+                    const checked = selectedServiceIds.includes(service.id);
+                    return (
+                      <button
+                        key={service.id}
+                        type="button"
+                        className={`service-card ${checked ? 'active' : ''}`}
+                        onClick={() => toggleService(service.id)}
+                        aria-pressed={checked}
+                      >
+                        <span className="service-card-check" aria-hidden="true">
+                          {checked && (
+                            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                              <polyline points="20 6 9 17 4 12" />
+                            </svg>
+                          )}
+                        </span>
+                        <h3>{service.name}</h3>
+                        <p>{service.description}</p>
+                        <div className="service-meta">
+                          <span>{service.duration}</span>
+                          <strong>{service.price}</strong>
+                        </div>
+                      </button>
+                    );
+                  })}
                 </div>
-              </label>
-            ))}
-          </div>
-        </div>
+              </div>
+            )}
 
-        {/* ── Step 2: Date & Time ── */}
-        <div className="stack">
-          <div className="section-header left">
-            <span className="eyebrow">Step 2</span>
-            <h2>Pick a Date & Time</h2>
-          </div>
+            {/* Step 2 — Add-ons */}
+            {currentStep === 1 && (
+              <div className="wizard-pane">
+                <header className="wizard-pane-header">
+                  <span className="eyebrow">Step 2 of {STEPS.length}</span>
+                  <h2>Anything to add?</h2>
+                  <p className="muted">Add-ons are optional — skip if you don&rsquo;t need them.</p>
+                </header>
 
-          <ScrollShroud edges={datesEdges} hintLabel="dates">
-            <div ref={datesRef} className="date-strip">
-              {dates.map((date) => {
-                const key = formatDateKey(date);
-                const isActive = selectedDate && formatDateKey(selectedDate) === key;
-                return (
-                  <button
-                    key={key}
-                    type="button"
-                    className={`date-card ${isActive ? 'active' : ''}`}
-                    onClick={() => setSelectedDate(date)}
-                  >
-                    <span className="date-day">{format(date, 'EEE')}</span>
-                    <span className="date-num">{format(date, 'd')}</span>
-                    <span className="date-month">{format(date, 'MMM')}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </ScrollShroud>
+                <div className="addon-grid">
+                  {addOns.map((addon) => (
+                    <label
+                      key={addon.id}
+                      className={`addon-card ${selectedAddOns.includes(addon.id) ? 'active' : ''}`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedAddOns.includes(addon.id)}
+                        onChange={() => toggleAddOn(addon.id)}
+                      />
+                      <div className="addon-info">
+                        <strong>{addon.name}</strong>
+                        <span>{addon.price}</span>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
 
-          {selectedDate && (
-            <div className="time-picker">
-              <h3>{formatDateLabel(selectedDate)}</h3>
-              {['morning', 'afternoon', 'evening'].map((period) => {
-                const slots = timeSlots.filter((s) => s.period === period);
-                if (!slots.length) return null;
-                const openCount = slots.filter((s) => s.available).length;
-                const label = period === 'morning' ? 'Morning' : period === 'afternoon' ? 'Afternoon' : 'Evening';
-                return (
-                  <div key={period} className="time-section">
-                    <div className="time-section-header">
-                      <span className="time-section-label">{label}</span>
-                      <span className="time-section-meta">
-                        {openCount === 0 ? 'fully booked' : `${openCount} open`}
-                      </span>
-                    </div>
-                    <div className="time-grid">
-                      {slots.map((slot) => (
+            {/* Step 3 — Date & Time */}
+            {currentStep === 2 && (
+              <div className="wizard-pane">
+                <header className="wizard-pane-header">
+                  <span className="eyebrow">Step 3 of {STEPS.length}</span>
+                  <h2>When works for you?</h2>
+                  <p className="muted">Pick a day, then a time. Booked slots are crossed out.</p>
+                </header>
+
+                <ScrollShroud edges={datesEdges} hintLabel="dates">
+                  <div ref={datesRef} className="date-strip">
+                    {dates.map((date) => {
+                      const key = formatDateKey(date);
+                      const isActive = selectedDate && formatDateKey(selectedDate) === key;
+                      return (
                         <button
-                          key={slot.id}
+                          key={key}
                           type="button"
-                          disabled={!slot.available}
-                          className={`slot-pill ${selectedTimeId === slot.id ? 'active' : ''} ${!slot.available ? 'booked' : ''}`}
-                          onClick={() => slot.available && setSelectedTimeId(slot.id)}
-                          aria-pressed={selectedTimeId === slot.id}
-                          aria-label={`${slot.label}${slot.available ? '' : ' (booked)'}`}
+                          className={`date-card ${isActive ? 'active' : ''}`}
+                          onClick={() => setSelectedDate(date)}
                         >
-                          {slot.label}
+                          <span className="date-day">{format(date, 'EEE')}</span>
+                          <span className="date-num">{format(date, 'd')}</span>
+                          <span className="date-month">{format(date, 'MMM')}</span>
                         </button>
-                      ))}
+                      );
+                    })}
+                  </div>
+                </ScrollShroud>
+
+                {selectedDate && (
+                  <div className="time-picker">
+                    <h3>{formatDateLabel(selectedDate)}</h3>
+                    {['morning', 'afternoon', 'evening'].map((period) => {
+                      const slots = timeSlots.filter((s) => s.period === period);
+                      if (!slots.length) return null;
+                      const openCount = slots.filter((s) => s.available).length;
+                      const label = period === 'morning' ? 'Morning' : period === 'afternoon' ? 'Afternoon' : 'Evening';
+                      return (
+                        <div key={period} className="time-section">
+                          <div className="time-section-header">
+                            <span className="time-section-label">{label}</span>
+                            <span className="time-section-meta">
+                              {openCount === 0 ? 'fully booked' : `${openCount} open`}
+                            </span>
+                          </div>
+                          <div className="time-grid">
+                            {slots.map((slot) => (
+                              <button
+                                key={slot.id}
+                                type="button"
+                                disabled={!slot.available}
+                                className={`slot-pill ${selectedTimeId === slot.id ? 'active' : ''} ${!slot.available ? 'booked' : ''}`}
+                                onClick={() => slot.available && setSelectedTimeId(slot.id)}
+                                aria-pressed={selectedTimeId === slot.id}
+                                aria-label={`${slot.label}${slot.available ? '' : ' (booked)'}`}
+                              >
+                                {slot.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Step 4 — Customer details */}
+            {currentStep === 3 && (
+              <div className="wizard-pane">
+                <header className="wizard-pane-header">
+                  <span className="eyebrow">Step 4 of {STEPS.length}</span>
+                  <h2>Your details</h2>
+                  <p className="muted">We&rsquo;ll send the confirmation to your email.</p>
+                </header>
+
+                <div className="form-grid">
+                  <div className="field">
+                    <label htmlFor="name">Full name</label>
+                    <input id="name" name="name" required value={customer.name} onChange={handleCustomerChange} placeholder="Your full name" autoComplete="name" />
+                  </div>
+                  <div className="field">
+                    <label htmlFor="email">Email</label>
+                    <input id="email" name="email" type="email" required value={customer.email} onChange={handleCustomerChange} placeholder="you@example.com" autoComplete="email" />
+                  </div>
+                  <div className="field">
+                    <label htmlFor="phone">Phone</label>
+                    <input id="phone" name="phone" type="tel" value={customer.phone} onChange={handleCustomerChange} placeholder="(555) 555-0122" autoComplete="tel" />
+                  </div>
+                </div>
+
+                <div className="field">
+                  <label htmlFor="notes">Anything we should know?</label>
+                  <textarea id="notes" name="notes" value={customer.notes} onChange={handleCustomerChange} placeholder="Sensitive skin, preferred products, first-time visit, allergies, etc." />
+                </div>
+              </div>
+            )}
+
+            {/* Step 5 — Review & Pay */}
+            {currentStep === 4 && (
+              <div className="wizard-pane">
+                <header className="wizard-pane-header">
+                  <span className="eyebrow">Step 5 of {STEPS.length}</span>
+                  <h2>Review &amp; pay</h2>
+                  <p className="muted">One last look, then we&rsquo;ll confirm your booking.</p>
+                </header>
+
+                <div className="card review-card">
+                  <h3 className="review-section-title">Your booking</h3>
+                  <ul className="review-list">
+                    {selectedServices.map((s) => (
+                      <li key={s.id} className="review-row">
+                        <span>{s.name}</span>
+                        <small className="muted">{s.duration}</small>
+                        <strong>{s.price}</strong>
+                      </li>
+                    ))}
+                    {selectedAddOnItems.map((a) => (
+                      <li key={a.id} className="review-row review-row-addon">
+                        <span>+ {a.name}</span>
+                        <small className="muted">add-on</small>
+                        <strong>{a.price}</strong>
+                      </li>
+                    ))}
+                  </ul>
+
+                  <div className="review-meta">
+                    <div className="review-meta-row">
+                      <span>When</span>
+                      <strong>{selectedDate ? formatDateLabel(selectedDate) : '—'} · {selectedSlot?.label ?? '—'}</strong>
+                    </div>
+                    <div className="review-meta-row">
+                      <span>Total</span>
+                      <strong className="review-total">${(totalCents / 100).toFixed(0)}</strong>
+                    </div>
+                    <div className="review-meta-row">
+                      <span>Late cancel fee</span>
+                      <strong>${(cancellationCents / 100).toFixed(0)}</strong>
                     </div>
                   </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-
-        {/* ── Step 3: Details ── */}
-        <div className="stack">
-          <div className="section-header left">
-            <span className="eyebrow">Step 3</span>
-            <h2>Your Details</h2>
-          </div>
-
-          <div className="form-grid">
-            <div className="field">
-              <label htmlFor="name">Full name</label>
-              <input id="name" name="name" required value={customer.name} onChange={handleCustomerChange} placeholder="Your full name" />
-            </div>
-            <div className="field">
-              <label htmlFor="email">Email</label>
-              <input id="email" name="email" type="email" required value={customer.email} onChange={handleCustomerChange} placeholder="you@example.com" />
-            </div>
-            <div className="field">
-              <label htmlFor="phone">Phone</label>
-              <input id="phone" name="phone" value={customer.phone} onChange={handleCustomerChange} placeholder="(555) 555-0122" />
-            </div>
-            <div className="field">
-              <label htmlFor="paymentIntent">Payment option</label>
-              <select id="paymentIntent" name="paymentIntent" value={customer.paymentIntent} onChange={handleCustomerChange}>
-                <option value="deposit">Pay deposit now</option>
-                <option value="full">Pay in full now</option>
-              </select>
-            </div>
-          </div>
-
-          <div className="field">
-            <label htmlFor="notes">Any notes for your esthetician?</label>
-            <textarea id="notes" name="notes" value={customer.notes} onChange={handleCustomerChange} placeholder="Sensitive skin, preferred products, first-time visit, etc." />
-          </div>
-        </div>
-
-        {/* ── Step 4: Payment ── */}
-        <div className="stack">
-          <div className="section-header left">
-            <span className="eyebrow">Step 4</span>
-            <h2>Payment</h2>
-          </div>
-
-          <p className="muted" style={{ marginBottom: 8 }}>
-            You'll be charged <strong>${chargeDollars}</strong>{' '}
-            {customer.paymentIntent === 'full' ? 'for the full service' : 'as your deposit'}
-            {selectedService ? ` to hold your ${selectedService.name}.` : '.'}
-          </p>
-
-          <div id="al-card-container" className="card-container" />
-
-          {!paymentReady && !paymentError && (
-            <small className="muted">Loading secure card form…</small>
-          )}
-          {paymentError && (
-            <small className="payment-error">{paymentError}</small>
-          )}
-        </div>
-
-        {/* ── Policy ── */}
-        <div className="accent-card card">
-          <div className="section-header left">
-            <span className="eyebrow">Before you book</span>
-            <h2>Cancellation Policy</h2>
-          </div>
-          <div className="policy-summary">
-            {policies.map((policy) => (
-              <div key={policy.id} className="policy-chip">
-                <strong>{policy.label}</strong>
-                <span>{policy.value}</span>
-              </div>
-            ))}
-          </div>
-
-          <label className="toggle-row">
-            <input type="checkbox" checked={agreedToPolicy} onChange={() => setAgreedToPolicy((v) => !v)} />
-            <span>I agree to the cancellation policy and authorize payment for any applicable fees.</span>
-          </label>
-        </div>
-
-        {/* ── Submit ── */}
-        <div className="action-row">
-          <button
-            className="button button-primary"
-            type="submit"
-            disabled={!paymentReady || isProcessing}
-          >
-            {isProcessing
-              ? 'Processing payment…'
-              : `Confirm & Pay $${chargeDollars || ''}`}
-          </button>
-        </div>
-
-        {confirmedBooking && (
-          <div className="success-banner">
-            <strong>You're booked!</strong>
-            <p>
-              {confirmedBooking.customerName}, your {confirmedBooking.serviceName}
-              {confirmedBooking.addOnNames?.length > 0 &&
-                ` + ${confirmedBooking.addOnNames.join(', ')}`}
-              {' '}is confirmed for {confirmedBooking.scheduledDate} at {confirmedBooking.scheduledTimeLabel}.
-            </p>
-            <p style={{ marginTop: 8 }}>
-              Your booking code is{' '}
-              <strong style={{ color: 'var(--gold, #b86dff)' }}>{confirmedBooking.code}</strong> —
-              use this to manage your appointment in the customer portal.
-              Charged today: ${(confirmedBooking.depositCents / 100).toFixed(
-                confirmedBooking.depositCents % 100 === 0 ? 0 : 2,
-              )}
-              .
-            </p>
-          </div>
-        )}
-      </form>
-
-      {/* ── Summary sidebar ── */}
-      <aside className="card summary-card">
-        <div className="stack">
-          <div className="section-header left">
-            <span className="eyebrow">Summary</span>
-            <h2>{selectedService?.name ?? 'Pick a service'}</h2>
-          </div>
-
-          <div className="summary-price">
-            <span>{selectedService?.duration}</span>
-            <strong>${totalPrice}</strong>
-          </div>
-
-          {selectedAddOnItems.length > 0 && (
-            <div className="summary-addons">
-              {selectedAddOnItems.map((a) => (
-                <div key={a.id} className="summary-addon-row">
-                  <span>{a.name}</span>
-                  <span>{a.price}</span>
                 </div>
-              ))}
-            </div>
-          )}
 
-          <div className="timeline">
-            <div className="timeline-item">
-              <small>Date</small>
-              <strong>{selectedDate ? formatDateLabel(selectedDate) : '—'}</strong>
-            </div>
-            <div className="timeline-item">
-              <small>Time</small>
-              <strong>{selectedSlot?.label ?? '—'}</strong>
-            </div>
-            <div className="timeline-item">
-              <small>Deposit</small>
-              <strong>{selectedService?.deposit ?? '—'}</strong>
-            </div>
-            <div className="timeline-item">
-              <small>Late cancel fee</small>
-              <strong>{selectedService?.cancellationFee ?? '—'}</strong>
-            </div>
+                <div className="field payment-intent-field">
+                  <label htmlFor="paymentIntent">Payment</label>
+                  <select id="paymentIntent" name="paymentIntent" value={customer.paymentIntent} onChange={handleCustomerChange}>
+                    <option value="deposit">Pay ${(depositCents / 100).toFixed(0)} deposit now (balance at appointment)</option>
+                    <option value="full">Pay ${(totalCents / 100).toFixed(0)} in full now</option>
+                  </select>
+                </div>
+
+                <div className="payment-card">
+                  <h3 className="review-section-title">Card</h3>
+                  <div id="al-card-container" className="card-container" />
+                  {!paymentReady && !paymentError && (
+                    <small className="muted">Loading secure card form…</small>
+                  )}
+                  {paymentError && <small className="payment-error">{paymentError}</small>}
+                </div>
+
+                <div className="card accent-card policy-card">
+                  <h3 className="review-section-title">Cancellation policy</h3>
+                  <div className="policy-summary">
+                    {policies.map((policy) => (
+                      <div key={policy.id} className="policy-chip">
+                        <strong>{policy.label}</strong>
+                        <span>{policy.value}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <label className="toggle-row">
+                    <input type="checkbox" checked={agreedToPolicy} onChange={() => setAgreedToPolicy((v) => !v)} />
+                    <span>I agree to the cancellation policy and authorize payment for any applicable fees.</span>
+                  </label>
+                </div>
+              </div>
+            )}
           </div>
         </div>
-      </aside>
+
+        {/* Sticky bottom CTA */}
+        <div className="wizard-cta">
+          <div className="wizard-cta-inner">
+            <button
+              type="button"
+              className="button button-secondary wizard-back"
+              onClick={goBack}
+              disabled={currentStep === 0 || isProcessing}
+            >
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <polyline points="15 6 9 12 15 18" />
+              </svg>
+              Back
+            </button>
+
+            {currentStep < STEPS.length - 1 ? (
+              <div className="wizard-cta-primary">
+                {selectedServiceIds.length > 0 && (
+                  <span className="wizard-cta-cart">
+                    {selectedServiceIds.length} {selectedServiceIds.length === 1 ? 'service' : 'services'} · ${(totalCents / 100).toFixed(0)}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  className="button button-primary"
+                  onClick={goNext}
+                  disabled={!stepValid(currentStep)}
+                >
+                  {currentStep === 1 && selectedAddOns.length === 0 ? 'Skip' : 'Continue'}
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <polyline points="9 6 15 12 9 18" />
+                  </svg>
+                </button>
+              </div>
+            ) : (
+              <button
+                type="submit"
+                className="button button-primary wizard-pay"
+                disabled={!stepValid(4) || isProcessing}
+              >
+                {isProcessing ? 'Processing…' : `Pay $${(chargeCents / 100).toFixed(0)}`}
+              </button>
+            )}
+          </div>
+        </div>
+      </form>
     </section>
   );
 }
