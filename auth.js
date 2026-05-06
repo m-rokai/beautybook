@@ -3,6 +3,7 @@ import Nodemailer from 'next-auth/providers/nodemailer';
 import { DrizzleAdapter } from '@auth/drizzle-adapter';
 import { db } from './lib/db';
 import { users, accounts, sessions, verificationTokens } from './lib/db/auth-schema';
+import { sendAdminMagicLink } from './lib/mailer';
 
 // Each entry is either an exact email ("ashley@gmail.com") OR a domain match
 // written with a leading "@" ("@muzeoffice.com" → any address at that domain).
@@ -48,6 +49,16 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         },
       },
       from: process.env.EMAIL_FROM,
+      // Override the default Auth.js HTML so we get a branded sign-in email
+      // and a unique subject line per send (Gmail bulk-groups identical
+      // subjects from new senders, which made follow-up sign-in attempts
+      // disappear into All Mail).
+      async sendVerificationRequest({ identifier, url }) {
+        const host = (() => {
+          try { return new URL(url).host; } catch { return ''; }
+        })();
+        await sendAdminMagicLink({ to: identifier, url, host });
+      },
     }),
   ],
   pages: {
