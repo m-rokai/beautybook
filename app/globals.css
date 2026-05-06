@@ -3085,3 +3085,131 @@ h3 {
     grid-template-columns: 1fr;
   }
 }
+
+/* ===================== ADMIN PAGE TOOLBAR ===================== */
+
+.page-intro-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.page-intro-toolbar .signout-button {
+  text-decoration: none;
+}
+
+/* ===================== SERVICES EDITOR ===================== */
+
+.services-editor {
+  display: grid;
+  gap: 18px;
+}
+
+.services-editor-category {
+  display: grid;
+  gap: 16px;
+}
+
+.services-editor-category-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.services-editor-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.services-editor-empty {
+  padding: 14px 16px;
+  border-radius: var(--radius-md);
+  background: var(--bg-raised);
+  border: 1px dashed var(--line-strong);
+  font-size: 0.88rem;
+}
+
+.services-editor-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 14px;
+  padding: 14px 16px;
+  border-radius: var(--radius-md);
+  background: var(--bg-raised);
+  border: 1px solid var(--line);
+}
+
+.services-editor-row.is-archived {
+  opacity: 0.6;
+}
+
+.services-editor-row.is-archived .services-editor-meta strong {
+  text-decoration: line-through;
+  text-decoration-color: var(--ink-faint);
+}
+
+.services-editor-row-editing {
+  flex-direction: column;
+  align-items: stretch;
+  background: var(--bg-card);
+  border-color: var(--line-strong);
+  padding: 18px 20px;
+}
+
+.services-editor-meta {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.services-editor-meta strong {
+  font-weight: 500;
+  color: var(--ink);
+  font-size: 0.98rem;
+}
+
+.services-editor-meta .muted {
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.services-editor-actions {
+  flex-wrap: wrap;
+}
+
+.service-editor-form {
+  display: grid;
+  gap: 16px;
+  width: 100%;
+}
+
+.service-editor-form .form-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.service-editor-form input[type='number'] {
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 480px) {
+  .services-editor-row {
+    align-items: stretch;
+  }
+  .services-editor-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+}

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getBookedIntervalsForDate } from '../../../../lib/bookings-db';
-import { services as catalog } from '../../../../lib/demo-data';
+import { getServiceMap } from '../../../../lib/services-db';
 import {
   parseDurationMinutes,
   blockedStartSlots,
@@ -17,8 +17,6 @@ const SLOT_IDS = (() => {
   }
   return ids;
 })();
-
-const serviceById = new Map(catalog.map((s) => [s.id, s]));
 
 // GET /api/bookings/availability?date=YYYY-MM-DD&serviceIds=a,b,c
 //   (legacy: ?serviceId=a — kept for any callers still on the single-select API)
@@ -46,6 +44,9 @@ export async function GET(request) {
   }
 
   try {
+    // Fetch the catalog from the DB so admin edits to durations land in
+    // conflict-detection on the very next request.
+    const serviceById = await getServiceMap();
     const rows = await getBookedIntervalsForDate(date);
     const existing = rows.map((row) => {
       // Use full service_ids array when present; fall back to the primary

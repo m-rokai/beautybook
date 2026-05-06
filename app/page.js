@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { CalendarClock, CreditCard, Gem, Sparkles, Instagram, Camera } from 'lucide-react';
-import { serviceCategories, addOns, cancellationPolicy } from '../lib/demo-data';
+import { addOns, cancellationPolicy } from '../lib/demo-data';
+import { listActiveServiceCategories } from '../lib/services-db';
 import { SiteHeader } from '../components/SiteHeader';
 import { instagramPosts, featuredPostUrls, INSTAGRAM_HANDLE, INSTAGRAM_URL } from '../lib/instagram';
 import { InstagramEmbeds } from '../components/InstagramEmbeds';
@@ -28,7 +29,8 @@ const features = [
   },
 ];
 
-export default function HomePage() {
+export default async function HomePage() {
+  const serviceCategories = await listActiveServiceCategories();
   return (
     <main className="page-shell">
       <SiteHeader />

@@ -29,6 +29,13 @@
       "when": 1778101638403,
       "tag": "0003_add_service_ids",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1778103599101,
+      "tag": "0004_add_services_table",
+      "breakpoints": true
     }
   ]
 }
