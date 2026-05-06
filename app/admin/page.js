@@ -4,6 +4,7 @@ import { SiteHeader } from '../../components/SiteHeader';
 import { AdminDashboard } from '../../components/admin/AdminDashboard';
 import { auth, signOut } from '../../auth';
 import { listActiveServices } from '../../lib/services-db';
+import { addOns } from '../../lib/demo-data';
 
 export default async function AdminPage() {
   // Defense-in-depth: proxy.js already gates /admin, but a page-level check
@@ -54,7 +55,7 @@ export default async function AdminPage() {
         </div>
       </section>
 
-      <AdminDashboard catalog={catalog} />
+      <AdminDashboard catalog={catalog} addOnCatalog={addOns} />
     </main>
   );
 }

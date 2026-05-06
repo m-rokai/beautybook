@@ -7,6 +7,7 @@ import {
   requestBalanceLink,
   cancelBooking,
   updateBookingServices,
+  fetchBookingEvents,
 } from '../../lib/booking-store';
 
 const formatDollars = (cents) => {
@@ -164,7 +165,7 @@ function deriveClientBook(bookings) {
   );
 }
 
-export function AdminDashboard({ catalog = [] }) {
+export function AdminDashboard({ catalog = [], addOnCatalog = [] }) {
   const catalogById = useMemo(() => new Map(catalog.map((s) => [s.id, s])), [catalog]);
   const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -177,9 +178,13 @@ export function AdminDashboard({ catalog = [] }) {
   const [cancelError, setCancelError] = useState({}); // { [code]: string }
   const [editingServicesCode, setEditingServicesCode] = useState(null);
   const [editDraft, setEditDraft] = useState([]); // serviceIds while editing
+  const [editAddOnDraft, setEditAddOnDraft] = useState([]); // addOnNames while editing
   const [editState, setEditState] = useState({}); // { [code]: 'saving' | 'error' | null }
   const [editError, setEditError] = useState({}); // { [code]: string }
   const [editResult, setEditResult] = useState({}); // { [code]: { creditOwedCents, delta } }
+  const [historyOpenCode, setHistoryOpenCode] = useState(null);
+  const [history, setHistory] = useState({}); // { [code]: events[] }
+  const [historyLoading, setHistoryLoading] = useState({});
 
   const refreshBookings = async () => {
     try {
@@ -256,6 +261,7 @@ export function AdminDashboard({ catalog = [] }) {
         ? [booking.serviceId]
         : [];
     setEditDraft(ids);
+    setEditAddOnDraft([...(booking.addOnNames || [])]);
     setEditError((s) => ({ ...s, [booking.code]: '' }));
     setEditResult((s) => ({ ...s, [booking.code]: null }));
   };
@@ -263,6 +269,7 @@ export function AdminDashboard({ catalog = [] }) {
   const cancelEditServices = () => {
     setEditingServicesCode(null);
     setEditDraft([]);
+    setEditAddOnDraft([]);
   };
 
   const handleAddServiceToEdit = (id) => {
@@ -274,6 +281,15 @@ export function AdminDashboard({ catalog = [] }) {
     setEditDraft((cur) => cur.filter((x) => x !== id));
   };
 
+  const handleAddAddOnToEdit = (name) => {
+    if (!name) return;
+    setEditAddOnDraft((cur) => (cur.includes(name) ? cur : [...cur, name]));
+  };
+
+  const handleRemoveAddOnFromEdit = (name) => {
+    setEditAddOnDraft((cur) => cur.filter((x) => x !== name));
+  };
+
   const saveServiceEdits = async (code) => {
     if (editDraft.length === 0) {
       setEditError((s) => ({ ...s, [code]: 'A booking needs at least one service.' }));
@@ -282,16 +298,42 @@ export function AdminDashboard({ catalog = [] }) {
     setEditState((s) => ({ ...s, [code]: 'saving' }));
     setEditError((s) => ({ ...s, [code]: '' }));
     try {
-      const data = await updateBookingServices(code, { serviceIds: editDraft });
-      replaceBookingInState(data.booking);
-      setEditResult((s) => ({ ...s, [code]: { creditOwedCents: data.creditOwedCents, delta: data.delta } }));
+      const data = await updateBookingServices(code, {
+        serviceIds: editDraft,
+        addOnNames: editAddOnDraft,
+      });
+      if (data.booking) replaceBookingInState(data.booking);
+      setEditResult((s) => ({ ...s, [code]: { creditOwedCents: data.creditOwedCents, delta: data.delta, noChange: data.noChange } }));
       setEditState((s) => ({ ...s, [code]: null }));
       setEditingServicesCode(null);
+      // If history is open for this booking, refresh it so the new event shows.
+      if (historyOpenCode === code) loadHistory(code);
     } catch (err) {
       console.error('[admin] edit services failed', err);
       setEditError((s) => ({ ...s, [code]: err?.message || 'Save failed' }));
       setEditState((s) => ({ ...s, [code]: 'error' }));
     }
+  };
+
+  const loadHistory = async (code) => {
+    setHistoryLoading((s) => ({ ...s, [code]: true }));
+    try {
+      const events = await fetchBookingEvents(code);
+      setHistory((s) => ({ ...s, [code]: events }));
+    } catch (err) {
+      console.error('[admin] load history failed', err);
+    } finally {
+      setHistoryLoading((s) => ({ ...s, [code]: false }));
+    }
+  };
+
+  const toggleHistory = (code) => {
+    if (historyOpenCode === code) {
+      setHistoryOpenCode(null);
+      return;
+    }
+    setHistoryOpenCode(code);
+    if (!history[code]) loadHistory(code);
   };
 
   const handleCancelWithRefund = async (code, refund) => {
@@ -552,16 +594,77 @@ export function AdminDashboard({ catalog = [] }) {
                           </select>
                         </div>
 
+                        <div className="services-edit-divider" />
+
+                        <p className="cancel-confirm-title" style={{ marginTop: 4 }}>Add-ons</p>
+                        {editAddOnDraft.length === 0 ? (
+                          <p className="muted" style={{ margin: '4px 0' }}>No add-ons selected.</p>
+                        ) : (
+                          <ul className="services-edit-list">
+                            {editAddOnDraft.map((name) => {
+                              const a = addOnCatalog.find((x) => x.name === name);
+                              return (
+                                <li key={name} className="services-edit-row">
+                                  <span>
+                                    <strong>{name}</strong>
+                                    {a && (
+                                      <small className="muted tabular-nums"> · {a.price}</small>
+                                    )}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    className="text-button"
+                                    onClick={() => handleRemoveAddOnFromEdit(name)}
+                                    aria-label={`Remove ${name}`}
+                                  >
+                                    × Remove
+                                  </button>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        )}
+
+                        <div className="field">
+                          <label htmlFor={`add-addon-${booking.code}`}>Add an add-on</label>
+                          <select
+                            id={`add-addon-${booking.code}`}
+                            value=""
+                            onChange={(e) => {
+                              handleAddAddOnToEdit(e.target.value);
+                              e.target.value = '';
+                            }}
+                          >
+                            <option value="">— Pick an add-on —</option>
+                            {addOnCatalog
+                              .filter((a) => !editAddOnDraft.includes(a.name))
+                              .map((a) => (
+                                <option key={a.id} value={a.name}>
+                                  {a.name} · {a.price}
+                                </option>
+                              ))}
+                          </select>
+                        </div>
+
                         {(() => {
-                          const newTotal = editDraft.reduce(
+                          const serviceTotal = editDraft.reduce(
                             (sum, id) => sum + (catalogById.get(id)?.priceCents ?? 0),
                             0,
                           );
+                          const addOnTotal = editAddOnDraft.reduce(
+                            (sum, name) => sum + ((addOnCatalog.find((a) => a.name === name)?.priceNum ?? 0) * 100),
+                            0,
+                          );
+                          const newTotal = serviceTotal + addOnTotal;
                           const newRemaining = Math.max(0, newTotal - booking.depositCents);
                           const credit = Math.max(0, booking.depositCents - newTotal);
                           return (
                             <div className="services-edit-summary">
-                              <div><span className="muted">Service total</span><strong>{formatDollars(newTotal)}</strong></div>
+                              <div><span className="muted">Services</span><strong>{formatDollars(serviceTotal)}</strong></div>
+                              {addOnTotal > 0 && (
+                                <div><span className="muted">Add-ons</span><strong>{formatDollars(addOnTotal)}</strong></div>
+                              )}
+                              <div><span className="muted">New total</span><strong>{formatDollars(newTotal)}</strong></div>
                               <div><span className="muted">Deposit on card</span><strong>{formatDollars(booking.depositCents)}</strong></div>
                               {newRemaining > 0 && (
                                 <div><span className="muted">Balance to collect</span><strong>{formatDollars(newRemaining)}</strong></div>
@@ -607,6 +710,49 @@ export function AdminDashboard({ catalog = [] }) {
                         <strong>{formatDollars(editResult[booking.code].creditOwedCents)}</strong>.
                         Issue a partial refund in Square if appropriate.
                       </p>
+                    )}
+
+                    <button
+                      type="button"
+                      className="text-button history-toggle"
+                      onClick={() => toggleHistory(booking.code)}
+                      aria-expanded={historyOpenCode === booking.code}
+                    >
+                      {historyOpenCode === booking.code ? '▾ Hide history' : '▸ View history'}
+                    </button>
+
+                    {historyOpenCode === booking.code && (
+                      <div className="history-panel" role="region" aria-label="Booking history">
+                        {historyLoading[booking.code] && (
+                          <p className="muted">Loading history…</p>
+                        )}
+                        {!historyLoading[booking.code] && (history[booking.code] || []).length === 0 && (
+                          <p className="muted">No events recorded yet for this booking.</p>
+                        )}
+                        {!historyLoading[booking.code] && (history[booking.code] || []).length > 0 && (
+                          <ol className="history-list">
+                            {history[booking.code].map((ev) => {
+                              const stamp = new Date(ev.createdAt).toLocaleString('en-US', {
+                                month: 'short',
+                                day: 'numeric',
+                                hour: 'numeric',
+                                minute: '2-digit',
+                                timeZone: 'America/Los_Angeles',
+                              });
+                              return (
+                                <li key={ev.id} className={`history-row history-row-${ev.eventType}`}>
+                                  <div className="history-row-meta">
+                                    <span className="history-event-type">{ev.eventType.replace(/_/g, ' ')}</span>
+                                    <span className="history-stamp tabular-nums">{stamp}</span>
+                                  </div>
+                                  <p className="history-summary">{ev.summary}</p>
+                                  {ev.actor && <small className="history-actor">{ev.actor}</small>}
+                                </li>
+                              );
+                            })}
+                          </ol>
+                        )}
+                      </div>
                     )}
 
                     {booking.status !== 'cancelled' && cancelingCode === booking.code && (

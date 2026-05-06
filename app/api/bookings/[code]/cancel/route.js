@@ -6,6 +6,8 @@ import {
   updateBookingByCode,
 } from '../../../../../lib/bookings-db';
 import { getSession } from '../../../../../lib/auth-helpers';
+import { recordBookingEvent } from '../../../../../lib/booking-events';
+import { sendBookingCancellationNotice } from '../../../../../lib/mailer';
 
 // POST /api/bookings/:code/cancel  (admin only)
 //
@@ -138,6 +140,35 @@ export async function POST(request, { params }) {
           }
         : {}),
     });
+    // Audit log + customer notification (best-effort — never block the API).
+    recordBookingEvent({
+      bookingId: updated.id,
+      bookingCode: code,
+      eventType: 'cancelled',
+      summary:
+        refundedCents > 0
+          ? `Cancelled · refunded $${(refundedCents / 100).toFixed(0)}`
+          : 'Cancelled (no refund)',
+      payload: { refundMode, refundedCents, refundStatus, refundDepositSquareId, refundBalanceSquareId },
+      actor: `admin:${session.user.email || 'unknown'}`,
+    }).catch(() => {});
+
+    sendBookingCancellationNotice(updated, { refundCents: refundedCents })
+      .then((res) => {
+        if (res?.ok) {
+          recordBookingEvent({
+            bookingId: updated.id,
+            bookingCode: code,
+            eventType: 'update_notified',
+            summary: 'Cancellation email sent to customer',
+            actor: 'system',
+          }).catch(() => {});
+        }
+      })
+      .catch((err) => {
+        console.error('[mailer] cancellation notice failed', err);
+      });
+
     return NextResponse.json({ booking: updated, refundedCents });
   } catch (error) {
     console.error('[cancel] DB write failed after refund', error);

@@ -8,6 +8,7 @@ import {
 } from '../../../lib/bookings-db';
 import { sendBookingConfirmation } from '../../../lib/mailer';
 import { truncate } from '../../../lib/pricing';
+import { recordBookingEvent } from '../../../lib/booking-events';
 
 // POST /api/payments
 // Atomic flow:
@@ -150,6 +151,22 @@ export async function POST(request) {
       depositSquareStatus: payment?.status ?? null,
       depositSquareReceiptUrl: payment?.receiptUrl ?? null,
     });
+
+    // Audit log: booking created.
+    recordBookingEvent({
+      bookingId: row.id,
+      bookingCode: row.code,
+      eventType: 'created',
+      summary: `Booking created · ${row.serviceName} · ${row.scheduledDate} ${row.scheduledTimeLabel}`,
+      payload: {
+        serviceIds: row.serviceIds,
+        addOnNames: row.addOnNames,
+        totalCents: row.totalCents,
+        depositCents: row.depositCents,
+        paymentIntent: row.paymentIntent,
+      },
+      actor: 'customer',
+    }).catch(() => {});
 
     // Best-effort confirmation email — never block the booking on SMTP.
     sendBookingConfirmation(row).catch((err) => {

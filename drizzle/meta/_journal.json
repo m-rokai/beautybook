@@ -36,6 +36,13 @@
       "when": 1778103599101,
       "tag": "0004_add_services_table",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1778105294065,
+      "tag": "0005_add_booking_events_and_reminder",
+      "breakpoints": true
     }
   ]
 }

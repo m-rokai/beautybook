@@ -3394,3 +3394,92 @@ h3 {
   border: 1px solid rgba(248, 113, 113, 0.2);
   font-variant-numeric: tabular-nums;
 }
+
+/* ===================== EDIT PANEL DIVIDER ===================== */
+
+.services-edit-divider {
+  height: 1px;
+  background: var(--line-strong);
+  margin: 6px 0;
+}
+
+/* ===================== HISTORY / CHANGE LOG ===================== */
+
+.history-toggle {
+  margin-top: 8px;
+  text-align: left;
+  font-weight: 500;
+}
+
+.history-panel {
+  margin-top: 6px;
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  background: var(--bg-raised);
+  border: 1px solid var(--line);
+  animation: rise 0.25s var(--ease-out) both;
+}
+
+.history-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.history-row {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--gold-deep);
+}
+
+.history-row-cancelled,
+.history-row-refund_failed {
+  border-left-color: var(--warning);
+}
+
+.history-row-balance_paid,
+.history-row-refund_completed,
+.history-row-update_notified,
+.history-row-confirmation_sent,
+.history-row-reminder_sent {
+  border-left-color: var(--success);
+}
+
+.history-row-meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.history-event-type {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--gold-bright);
+}
+
+.history-stamp {
+  font-size: 0.74rem;
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.history-summary {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--ink);
+  line-height: 1.45;
+}
+
+.history-actor {
+  font-size: 0.72rem;
+  color: var(--ink-faint);
+}
