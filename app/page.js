@@ -2,7 +2,8 @@ import Link from 'next/link';
 import { CalendarClock, CreditCard, Gem, Sparkles, Instagram, Camera } from 'lucide-react';
 import { serviceCategories, addOns, cancellationPolicy } from '../lib/demo-data';
 import { SiteHeader } from '../components/SiteHeader';
-import { instagramPosts, INSTAGRAM_HANDLE, INSTAGRAM_URL } from '../lib/instagram';
+import { instagramPosts, featuredPostUrls, INSTAGRAM_HANDLE, INSTAGRAM_URL } from '../lib/instagram';
+import { InstagramEmbeds } from '../components/InstagramEmbeds';
 
 const features = [
   {
@@ -171,30 +172,34 @@ export default function HomePage() {
           </p>
         </div>
 
-        <div className="ig-grid">
-          {instagramPosts.map((post) => (
-            <a
-              key={post.id}
-              href={post.href}
-              target="_blank"
-              rel="noopener"
-              className="ig-tile"
-              aria-label={post.caption}
-            >
-              {post.image ? (
-                <img src={post.image} alt={post.caption} loading="lazy" />
-              ) : (
-                <span className="ig-tile-placeholder" aria-hidden="true">
-                  <Camera size={28} />
+        {featuredPostUrls.length > 0 ? (
+          <InstagramEmbeds urls={featuredPostUrls} />
+        ) : (
+          <div className="ig-grid">
+            {instagramPosts.map((post) => (
+              <a
+                key={post.id}
+                href={post.href}
+                target="_blank"
+                rel="noopener"
+                className="ig-tile"
+                aria-label={post.caption}
+              >
+                {post.image ? (
+                  <img src={post.image} alt={post.caption} loading="lazy" />
+                ) : (
+                  <span className="ig-tile-placeholder" aria-hidden="true">
+                    <Camera size={28} />
+                  </span>
+                )}
+                <span className="ig-tile-overlay" aria-hidden="true">
+                  <Instagram size={18} />
+                  <span>@{INSTAGRAM_HANDLE}</span>
                 </span>
-              )}
-              <span className="ig-tile-overlay" aria-hidden="true">
-                <Instagram size={18} />
-                <span>@{INSTAGRAM_HANDLE}</span>
-              </span>
-            </a>
-          ))}
-        </div>
+              </a>
+            ))}
+          </div>
+        )}
 
         <div className="hero-actions" style={{ justifyContent: 'center', marginTop: 28 }}>
           <a

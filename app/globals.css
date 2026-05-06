@@ -3059,3 +3059,29 @@ h3 {
   color: var(--ink-faint);
   line-height: 1.6;
 }
+
+/* ===================== INSTAGRAM EMBEDS ===================== */
+
+.ig-embeds {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  align-items: start;
+}
+
+.ig-embeds .instagram-media {
+  /* Instagram's own iframe ships with !important inline styles for some
+     properties — these only nudge the surrounding chrome. */
+  margin: 0 !important;
+  border-radius: var(--radius-lg) !important;
+  overflow: hidden !important;
+  box-shadow: var(--shadow-md) !important;
+  border: 1px solid var(--line-strong) !important;
+}
+
+@media (max-width: 480px) {
+  .ig-embeds {
+    gap: 14px;
+    grid-template-columns: 1fr;
+  }
+}
