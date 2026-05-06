@@ -630,6 +630,33 @@ export function AdminDashboard() {
           )}
         </div>
 
+        {/* ── Booking QR ── */}
+        <div className="card qr-card">
+          <div className="section-header left">
+            <span className="eyebrow">Share</span>
+            <h2>Booking QR</h2>
+          </div>
+          <p className="muted" style={{ marginBottom: 12 }}>
+            Print, post on Instagram, or stick on the booth — anyone who scans it lands directly on the booking flow.
+          </p>
+          <div className="qr-display">
+            <img
+              src="/api/qr?size=480"
+              alt="QR code linking to the Ashley Lacy Esthetics booking page"
+              width={240}
+              height={240}
+            />
+          </div>
+          <div className="action-row" style={{ justifyContent: 'center', flexWrap: 'wrap' }}>
+            <a className="button button-secondary" href="/api/qr?size=1024" download="ashley-lacy-booking.png">
+              Download PNG
+            </a>
+            <a className="button button-secondary" href="/api/qr?format=svg" download="ashley-lacy-booking.svg">
+              Download SVG
+            </a>
+          </div>
+        </div>
+
         {/* ── Client book — deduped from real bookings ── */}
         <div className="card">
           <div className="section-header left">

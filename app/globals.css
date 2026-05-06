@@ -2393,3 +2393,34 @@ h3 {
 .tabular-nums {
   font-variant-numeric: tabular-nums;
 }
+
+/* ===================== QR CARD ===================== */
+
+.qr-card {
+  display: grid;
+  gap: 16px;
+}
+
+.qr-display {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 18px;
+  background: #ffffff;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm), 0 0 0 1px rgba(184, 109, 255, 0.15);
+}
+
+.qr-display img {
+  display: block;
+  width: 240px;
+  height: 240px;
+  image-rendering: pixelated;
+}
+
+@media (max-width: 480px) {
+  .qr-display img {
+    width: 200px;
+    height: 200px;
+  }
+}
