@@ -33,7 +33,7 @@ export default function HomePage() {
 
       <section className="hero">
         <div className="hero-copy">
-          <span className="eyebrow">Ashley Lacy Aesthetics</span>
+          <span className="eyebrow">Ashley Lacy Esthetics</span>
           <h1>Your skin deserves <em>expert</em> care.</h1>
           <p className="hero-text">
             Professional facials, waxing, body treatments, and lash services

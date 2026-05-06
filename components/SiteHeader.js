@@ -7,7 +7,7 @@ export function SiteHeader() {
         <div className="brand-mark">AL</div>
         <div className="brand-copy">
           <span>Ashley Lacy</span>
-          <strong>Aesthetics</strong>
+          <strong>Esthetics</strong>
         </div>
       </Link>
 

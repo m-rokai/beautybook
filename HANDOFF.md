@@ -1,6 +1,6 @@
 # Beauty Booking — Master Reference & Handoff
 
-Mobile-first booking app for **Ashley Lacy Aesthetics** (esthetician practice), built as part of the Muze Office amenity ecosystem. Live card payments via Square, booking records in Neon Postgres.
+Mobile-first booking app for **Ashley Lacy Esthetics** (esthetician practice), built as part of the Muze Office amenity ecosystem. Live card payments via Square, booking records in Neon Postgres.
 
 **Last updated:** 2026-04-08
 

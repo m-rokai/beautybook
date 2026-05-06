@@ -1,9 +1,9 @@
 import './globals.css';
 
 export const metadata = {
-  title: 'Ashley Lacy Aesthetics | Book Your Glow',
+  title: 'Ashley Lacy Esthetics | Book Your Glow',
   description:
-    'Book facials, skin treatments, and beauty services with Ashley Lacy Aesthetics. Easy online booking with flexible scheduling.',
+    'Book facials, skin treatments, and beauty services with Ashley Lacy Esthetics. Easy online booking with flexible scheduling.',
 };
 
 export default function RootLayout({ children }) {
