@@ -2131,3 +2131,43 @@ h3 {
   color: var(--ink-muted);
   font-variant-numeric: tabular-nums;
 }
+
+/* ===================== LOCATION ===================== */
+
+.location-card {
+  display: grid;
+  gap: 18px;
+  text-align: center;
+  background: linear-gradient(160deg, var(--bg-card), var(--bg-raised));
+}
+
+.location-card .section-header {
+  text-align: center;
+}
+
+.location-card .hero-actions {
+  justify-content: center;
+  margin: 0;
+}
+
+.location-block {
+  font-style: normal;
+  display: grid;
+  gap: 4px;
+  color: var(--ink-secondary);
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+}
+
+.location-block strong {
+  font-family: var(--font-display);
+  font-size: 1.6rem;
+  font-weight: 500;
+  color: var(--ink);
+  letter-spacing: 0.005em;
+}
+
+.location-block p {
+  margin: 0;
+  font-size: 1rem;
+}

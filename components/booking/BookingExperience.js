@@ -193,7 +193,11 @@ export function BookingExperience({ serviceCategories, addOns, policies }) {
     const locationId = process.env.NEXT_PUBLIC_SQUARE_LOCATION_ID;
 
     if (!appId || !locationId) {
-      setPaymentError('Square is not configured. Set NEXT_PUBLIC_SQUARE_APPLICATION_ID and NEXT_PUBLIC_SQUARE_LOCATION_ID in .env.local.');
+      setPaymentError(
+        "We can't take payment right now — please try again in a moment. " +
+          "If you keep seeing this, hard-refresh the page (Shift-Reload) or contact us.",
+      );
+      console.error('[booking] Square config missing', { appId: !!appId, locationId: !!locationId });
       return;
     }
 

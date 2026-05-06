@@ -51,12 +51,12 @@ export default function HomePage() {
 
           <div className="hero-highlights">
             <div className="metric-card">
-              <span className="metric-label">By appointment</span>
-              <strong>Tue – Sat</strong>
+              <span className="metric-label">Open</span>
+              <strong>7 days a week</strong>
             </div>
             <div className="metric-card">
-              <span className="metric-label">Studio</span>
-              <strong>Las Vegas, NV</strong>
+              <span className="metric-label">Inside</span>
+              <strong>Muze Office</strong>
             </div>
             <div className="metric-card">
               <span className="metric-label">Booking</span>
@@ -180,6 +180,31 @@ export default function HomePage() {
                 Book Now
               </Link>
             </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ── Location ── */}
+      <section className="section">
+        <div className="card location-card">
+          <div className="section-header left">
+            <span className="eyebrow">Find us</span>
+            <h2>Inside Muze Office.</h2>
+          </div>
+          <address className="location-block">
+            <strong>Muze Office</strong>
+            <p>6860 Bermuda Rd, Suite 200</p>
+            <p>Las Vegas, NV 89119</p>
+          </address>
+          <div className="hero-actions">
+            <a
+              href="https://www.google.com/maps/search/?api=1&query=Muze+Office+6860+Bermuda+Rd+Ste+200+Las+Vegas+NV+89119"
+              target="_blank"
+              rel="noreferrer"
+              className="button button-secondary"
+            >
+              Open in Maps
+            </a>
           </div>
         </div>
       </section>
