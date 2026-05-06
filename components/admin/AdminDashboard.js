@@ -80,6 +80,64 @@ function deriveWeeklyRevenue(bookings) {
   return days;
 }
 
+function todayKey() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+// Returns today's bookings sorted by start time, with a structured payment
+// state hint per row so the UI can color-code at a glance.
+function deriveTodaySchedule(bookings) {
+  const key = todayKey();
+  const rows = bookings
+    .filter((b) => b.scheduledDate === key && b.status !== 'cancelled')
+    .sort((a, b) => (a.scheduledTimeId || '').localeCompare(b.scheduledTimeId || ''));
+  return rows.map((b) => ({
+    ...b,
+    paymentState:
+      b.balanceStatus === 'paid'
+        ? 'paid'
+        : b.balanceStatus === 'link_sent'
+        ? 'link_sent'
+        : b.remainingCents > 0
+        ? 'unpaid'
+        : 'paid',
+  }));
+}
+
+// Bookings that need Ashley's attention right now: future appointments with
+// outstanding balance, or balance links that have been sent but not paid.
+function deriveOutstandingActions(bookings) {
+  const key = todayKey();
+  return bookings
+    .filter(
+      (b) =>
+        b.status !== 'cancelled' &&
+        b.scheduledDate >= key &&
+        b.remainingCents > 0 &&
+        b.balanceStatus !== 'paid',
+    )
+    .sort((a, b) => (a.scheduledDate + a.scheduledTimeId).localeCompare(b.scheduledDate + b.scheduledTimeId));
+}
+
+// Top services in the last ~30 days by booking count.
+function deriveServiceMix(bookings) {
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - 30);
+  const cutoffKey = cutoff.toISOString().slice(0, 10);
+  const counts = new Map();
+  for (const b of bookings) {
+    if (b.status === 'cancelled') continue;
+    if ((b.scheduledDate || '') < cutoffKey) continue;
+    const name = b.serviceName || 'Unknown';
+    counts.set(name, (counts.get(name) || 0) + 1);
+  }
+  const total = Array.from(counts.values()).reduce((sum, c) => sum + c, 0);
+  return Array.from(counts.entries())
+    .map(([name, count]) => ({ name, count, share: total ? count / total : 0 }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 5);
+}
+
 function deriveClientBook(bookings) {
   const byEmail = new Map();
   for (const b of bookings) {
@@ -207,10 +265,55 @@ export function AdminDashboard() {
   const liveStats = useMemo(() => deriveStats(bookings), [bookings]);
   const weeklyRevenue = useMemo(() => deriveWeeklyRevenue(bookings), [bookings]);
   const clientBook = useMemo(() => deriveClientBook(bookings), [bookings]);
+  const todaySchedule = useMemo(() => deriveTodaySchedule(bookings), [bookings]);
+  const outstanding = useMemo(() => deriveOutstandingActions(bookings), [bookings]);
+  const serviceMix = useMemo(() => deriveServiceMix(bookings), [bookings]);
+
+  const todayLabel = useMemo(
+    () =>
+      new Date().toLocaleDateString('en-US', {
+        weekday: 'long',
+        month: 'long',
+        day: 'numeric',
+      }),
+    [],
+  );
 
   return (
     <section className="dashboard-grid">
       <div className="dashboard-column">
+        {/* ── Today's schedule ── */}
+        <div className="card today-card">
+          <div className="today-header">
+            <div>
+              <span className="eyebrow">Today</span>
+              <h2>{todayLabel}</h2>
+            </div>
+            <div className="today-meta">
+              <strong className="tabular-nums">{todaySchedule.length}</strong>
+              <span>{todaySchedule.length === 1 ? 'appointment' : 'appointments'}</span>
+            </div>
+          </div>
+          {todaySchedule.length === 0 ? (
+            <p className="muted">No appointments today. Enjoy the breather.</p>
+          ) : (
+            <ol className="today-list">
+              {todaySchedule.map((b) => (
+                <li key={b.code} className="today-row">
+                  <span className="today-time tabular-nums">{b.scheduledTimeLabel}</span>
+                  <div className="today-body">
+                    <strong>{b.customerName}</strong>
+                    <span className="muted">{b.serviceName}</span>
+                  </div>
+                  <span className={`status-pill ${b.paymentState === 'paid' ? 'success' : b.paymentState === 'link_sent' ? 'gold' : 'warning'}`}>
+                    {b.paymentState === 'paid' ? 'Paid' : b.paymentState === 'link_sent' ? 'Link sent' : `${formatDollars(b.remainingCents)} due`}
+                  </span>
+                </li>
+              ))}
+            </ol>
+          )}
+        </div>
+
         {/* ── Live stats — derived from real bookings ── */}
         <div className="stats-grid">
           {liveStats.map((card) => (
@@ -473,6 +576,60 @@ export function AdminDashboard() {
       </div>
 
       <div className="dashboard-column">
+        {/* ── Outstanding — bookings that need attention ── */}
+        <div className="card">
+          <div className="section-header left">
+            <span className="eyebrow">Needs attention</span>
+            <h2>Outstanding</h2>
+          </div>
+          {outstanding.length === 0 ? (
+            <p className="muted">Nothing outstanding. Every upcoming booking is paid or scheduled to settle on the day.</p>
+          ) : (
+            <ul className="outstanding-list">
+              {outstanding.map((b) => (
+                <li key={b.code} className="outstanding-row">
+                  <div>
+                    <strong>{b.customerName}</strong>
+                    <span className="muted">
+                      {b.scheduledDate} · {b.scheduledTimeLabel} · {b.serviceName}
+                    </span>
+                  </div>
+                  <span className={`status-pill ${b.balanceStatus === 'link_sent' ? 'gold' : 'warning'}`}>
+                    {b.balanceStatus === 'link_sent' ? 'Link sent' : 'Unpaid'} · {formatDollars(b.remainingCents)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        {/* ── Service mix — last 30 days ── */}
+        <div className="card">
+          <div className="section-header left">
+            <span className="eyebrow">Last 30 days</span>
+            <h2>Service Mix</h2>
+          </div>
+          {serviceMix.length === 0 ? (
+            <p className="muted">No completed bookings in the last 30 days yet.</p>
+          ) : (
+            <ul className="service-mix-list">
+              {serviceMix.map((s) => (
+                <li key={s.name} className="service-mix-row">
+                  <div className="service-mix-meta">
+                    <strong>{s.name}</strong>
+                    <span className="muted tabular-nums">
+                      {s.count} · {Math.round(s.share * 100)}%
+                    </span>
+                  </div>
+                  <div className="service-mix-bar" aria-hidden="true">
+                    <span style={{ width: `${Math.max(6, Math.round(s.share * 100))}%` }} />
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
         {/* ── Client book — deduped from real bookings ── */}
         <div className="card">
           <div className="section-header left">
