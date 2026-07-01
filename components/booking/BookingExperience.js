@@ -115,6 +115,7 @@ export function BookingExperience({ serviceCategories, addOns, policies }) {
 
   // Square Web Payments SDK state
   const cardRef = useRef(null);
+  const [paymentsInstance, setPaymentsInstance] = useState(null);
   const [paymentReady, setPaymentReady] = useState(false);
   const [paymentError, setPaymentError] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -193,7 +194,11 @@ export function BookingExperience({ serviceCategories, addOns, policies }) {
     };
   }, [selectedDate, selectedServiceIds]);
 
-  // Square SDK: load + mount card form once on mount.
+  // Square SDK: load the script + create the payments instance once on mount.
+  // The card form itself attaches in the effect below — #al-card-container only
+  // exists while the Pay step is rendered (wizard steps are conditional), so
+  // attaching here would throw ElementNotFoundError before the customer ever
+  // reaches payment.
   useEffect(() => {
     const appId = process.env.NEXT_PUBLIC_SQUARE_APPLICATION_ID;
     const locationId = process.env.NEXT_PUBLIC_SQUARE_LOCATION_ID;
@@ -235,16 +240,7 @@ export function BookingExperience({ serviceCategories, addOns, policies }) {
       try {
         await loadScript();
         if (cancelled) return;
-        const payments = window.Square.payments(appId, locationId);
-        const card = await payments.card();
-        if (cancelled) {
-          await card.destroy?.();
-          return;
-        }
-        await card.attach('#al-card-container');
-        cardRef.current = card;
-        setPaymentReady(true);
-        setPaymentError('');
+        setPaymentsInstance(window.Square.payments(appId, locationId));
       } catch (error) {
         console.error('[square] init failed', error);
         setPaymentError(error?.message || 'Could not initialize card form.');
@@ -253,12 +249,47 @@ export function BookingExperience({ serviceCategories, addOns, policies }) {
 
     return () => {
       cancelled = true;
+    };
+  }, []);
+
+  // Attach the card form whenever the Pay step is visible; destroy it when the
+  // customer navigates away so re-entering the step re-attaches to the freshly
+  // rendered container.
+  useEffect(() => {
+    if (currentStep !== 4 || !paymentsInstance) return undefined;
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const card = await paymentsInstance.card();
+        if (cancelled) {
+          await card.destroy?.();
+          return;
+        }
+        await card.attach('#al-card-container');
+        if (cancelled) {
+          await card.destroy?.();
+          return;
+        }
+        cardRef.current = card;
+        setPaymentReady(true);
+        setPaymentError('');
+      } catch (error) {
+        console.error('[square] card attach failed', error);
+        setPaymentError(error?.message || 'Could not initialize card form.');
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      setPaymentReady(false);
       if (cardRef.current) {
         cardRef.current.destroy?.().catch(() => {});
         cardRef.current = null;
       }
     };
-  }, []);
+  }, [currentStep, paymentsInstance]);
 
   // ── Handlers ──
   const toggleService = (id) => {
