@@ -10,6 +10,26 @@ import { sendBookingConfirmation } from '../../../lib/mailer';
 import { truncate } from '../../../lib/pricing';
 import { recordBookingEvent } from '../../../lib/booking-events';
 
+// Square decline codes → copy a customer can act on. The raw detail strings
+// ("Authorization error: 'TRANSACTION_LIMIT'") are meaningless to shoppers.
+// Codes: https://developer.squareup.com/docs/payments-api/error-codes
+const FRIENDLY_CARD_ERRORS = {
+  TRANSACTION_LIMIT:
+    'Your bank declined this online payment. Try a different card, or check that online purchases are enabled for this card.',
+  CARDHOLDER_INSUFFICIENT_PERMISSIONS:
+    'Your bank blocked this online payment. Try a different card or contact your bank.',
+  GENERIC_DECLINE: 'Your bank declined the card. Try a different card or contact your bank.',
+  CVV_FAILURE: 'The security code (CVV) didn’t match. Please double-check it and try again.',
+  ADDRESS_VERIFICATION_FAILURE:
+    'The ZIP code didn’t match this card’s billing address. Please re-enter it.',
+  INSUFFICIENT_FUNDS: 'The card was declined for insufficient funds.',
+  CARD_EXPIRED: 'This card has expired. Please use a different card.',
+  INVALID_CARD: 'The card number doesn’t look right. Please re-enter it.',
+  INVALID_EXPIRATION: 'The expiration date doesn’t look right. Please re-enter it.',
+  CARD_NOT_SUPPORTED: 'This card type isn’t supported. Please try a different card.',
+  PAN_FAILURE: 'The card number appears invalid. Please re-enter it.',
+};
+
 // POST /api/payments
 // Atomic flow:
 //   1. Validate incoming booking draft.
@@ -117,11 +137,17 @@ export async function POST(request) {
   } catch (error) {
     console.error('[square] payments.create failed', error);
     const squareErrors = error?.errors || error?.body?.errors;
+    const squareError = Array.isArray(squareErrors) ? squareErrors[0] : null;
+    const friendly = squareError?.code && FRIENDLY_CARD_ERRORS[squareError.code];
     const message =
-      (Array.isArray(squareErrors) && squareErrors[0]?.detail) ||
+      friendly ||
+      squareError?.detail ||
       error?.message ||
       'Payment failed';
-    return NextResponse.json({ error: message }, { status: 402 });
+    return NextResponse.json(
+      { error: message, code: squareError?.code ?? null },
+      { status: 402 },
+    );
   }
 
   // 3. Persist the booking. If the DB write fails after Square succeeded we still return
