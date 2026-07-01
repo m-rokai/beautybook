@@ -3,8 +3,12 @@ import { WebhooksHelper } from 'square';
 import {
   findBookingByBalanceOrderId,
   findBookingByCode,
+  findBookingByPaymentId,
+  findBookingByRefundId,
   updateBookingByCode,
 } from '../../../../lib/bookings-db';
+import { recordBookingEvent } from '../../../../lib/booking-events';
+import { SITE_URL } from '../../../../lib/site';
 
 // Square posts JSON. We must read the raw body for signature verification.
 export async function POST(request) {
@@ -12,9 +16,10 @@ export async function POST(request) {
 
   const signatureKey = process.env.SQUARE_WEBHOOK_SIGNATURE_KEY;
   const signatureHeader = request.headers.get('x-square-hmacsha256-signature');
-  const notificationUrl = process.env.NEXT_PUBLIC_APP_URL
-    ? `${process.env.NEXT_PUBLIC_APP_URL.replace(/\/$/, '')}/api/webhooks/square`
-    : null;
+  // SITE_URL falls back to the canonical production URL when NEXT_PUBLIC_APP_URL
+  // is unset/empty — an empty env var here silently 400s every Square webhook,
+  // which is how balance payments stopped syncing in June 2026.
+  const notificationUrl = `${SITE_URL.replace(/\/$/, '')}/api/webhooks/square`;
 
   if (!signatureKey || !signatureHeader || !notificationUrl) {
     console.warn('[square-webhook] missing signature config — rejecting');
@@ -56,9 +61,7 @@ export async function POST(request) {
       }
       case 'refund.created':
       case 'refund.updated': {
-        const refund = dataObject?.refund;
-        console.log('[square-webhook] refund', refund?.id, refund?.status);
-        // TODO: mark booking as refunded when we support cancellations with refunds.
+        await handleRefundEvent(dataObject?.refund);
         break;
       }
       case 'dispute.created':
@@ -135,5 +138,81 @@ async function handlePaymentEvent(payment) {
         balanceSquarePaymentId: paymentId,
       });
     }
+  }
+}
+
+/**
+ * Match a Square refund event back to a booking and update its refund state.
+ *
+ * Matching rules (in order of confidence):
+ *   1. refund.id matches refundDepositSquareId or refundBalanceSquareId
+ *      (refunds initiated via /api/bookings/:code/cancel — we wrote the id there).
+ *   2. refund.payment_id matches depositSquarePaymentId or balanceSquarePaymentId
+ *      (covers refunds initiated externally, e.g. from the Square dashboard).
+ */
+async function handleRefundEvent(refund) {
+  if (!refund) return;
+
+  const refundId = refund.id;
+  const paymentId = refund.payment_id || refund.paymentId;
+  const status = refund.status;
+  const amountCents = Number(refund.amount_money?.amount ?? refund.amountMoney?.amount ?? 0) || null;
+
+  console.log('[square-webhook] refund', { refundId, paymentId, status, amountCents });
+
+  let booking = refundId ? await findBookingByRefundId(refundId) : null;
+  if (!booking && paymentId) {
+    booking = await findBookingByPaymentId(paymentId);
+  }
+  if (!booking) {
+    console.warn('[square-webhook] refund could not be matched to a booking', { refundId, paymentId });
+    return;
+  }
+
+  const mappedStatus = mapRefundStatus(status);
+  if (!mappedStatus) return;
+
+  // Idempotency: don't downgrade a completed refund or rewrite identical state.
+  if (booking.refundStatus === mappedStatus) return;
+  if (booking.refundStatus === 'completed' && mappedStatus !== 'failed') return;
+
+  const patch = { refundStatus: mappedStatus };
+  if (mappedStatus === 'completed') {
+    patch.refundedAt = new Date();
+    if (!booking.refundCents && amountCents) patch.refundCents = amountCents;
+    patch.refundError = null;
+    // External refund (from Square dashboard) — also cancel the booking.
+    if (booking.status !== 'cancelled') patch.status = 'cancelled';
+  } else if (mappedStatus === 'failed') {
+    patch.refundError = `Square refund ${refundId} reported status ${status}`;
+  }
+
+  const updated = await updateBookingByCode(booking.code, patch);
+  if (!updated) return;
+
+  recordBookingEvent({
+    bookingId: updated.id,
+    bookingCode: updated.code,
+    eventType: mappedStatus === 'completed' ? 'refund_completed' : 'refund_failed',
+    summary:
+      mappedStatus === 'completed'
+        ? `Refund completed${amountCents ? ` · $${(amountCents / 100).toFixed(2)}` : ''}`
+        : `Refund ${status?.toLowerCase() || 'failed'}`,
+    payload: { refundId, paymentId, status, amountCents },
+    actor: 'webhook',
+  }).catch(() => {});
+}
+
+function mapRefundStatus(status) {
+  switch (status) {
+    case 'COMPLETED':
+      return 'completed';
+    case 'PENDING':
+      return 'pending';
+    case 'FAILED':
+    case 'REJECTED':
+      return 'failed';
+    default:
+      return null;
   }
 }

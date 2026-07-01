@@ -24,8 +24,9 @@ import { sendBookingCancellationNotice } from '../../../../../lib/mailer';
 //     this, but rejecting at the API layer is faster and clearer.
 //   - Atomic-enough: refund first, DB write after. If the refund call fails
 //     we return the error and DON'T flip status — admin can retry.
-//   - Webhook-friendly: refund.created/updated webhooks will arrive afterward;
-//     they're a no-op (logged) since we already wrote refund state here.
+//   - Webhook-friendly: refund.created/updated webhooks arrive afterward; the
+//     handler flips refundStatus PENDING→COMPLETED (or FAILED) and is idempotent
+//     so it doesn't overwrite a row already at the same status.
 const VALID_REFUND_MODES = new Set(['deposit', 'full', 'none']);
 
 export async function POST(request, { params }) {

@@ -1,8 +1,8 @@
 # Beauty Booking — Master Reference & Handoff
 
-Mobile-first booking app for **Ashley Lacy Esthetics** (esthetician practice), built as part of the Muze Office amenity ecosystem. Live card payments via Square, booking records in Neon Postgres.
+Mobile-first booking app for **Ashley Lacy Esthetics**, built as part of the Muze Office amenity ecosystem. Live card payments via Square, booking records in Neon Postgres, admin auth via magic-link.
 
-**Last updated:** 2026-04-08
+**Last updated:** 2026-07-01
 
 ---
 
@@ -10,28 +10,33 @@ Mobile-first booking app for **Ashley Lacy Esthetics** (esthetician practice), b
 
 | Area | Status |
 |---|---|
-| Square sandbox payments (deposit + full charge) | ✅ Working E2E |
-| Neon Postgres schema + CRUD | ✅ Live |
-| Customer portal (lookup / reschedule / cancel) | ✅ DB-backed |
-| Admin dashboard (list / confirm / cancel / collect-balance) | ✅ DB-backed |
+| Square payments (deposit + full charge) | ✅ Working E2E |
 | Square Payment Link balance collection | ✅ Working E2E |
-| Square webhook handler (HMAC-verified) | ✅ Code ready, not wired to prod webhook yet |
-| GitHub repo | ✅ `m-rokai/beautybook`, branch `main` |
-| Vercel deployment | ⏳ In progress (importing via vercel.com/new) |
-| Admin auth | ❌ Not started — `/admin` is currently public |
-| Refund-on-cancel | ❌ Not started — cancel flips status but doesn't refund |
-| Resend email | ❌ Not started — env var slot exists |
+| Square webhook handler (HMAC-verified) | ✅ Wired — handles payment + refund + dispute |
+| Refund-on-cancel (admin) | ✅ Atomic refund + status flip, idempotent |
+| Refund state via webhook | ✅ Pending→Completed/Failed transitions + external-refund recovery |
+| Neon Postgres schema + CRUD | ✅ Live (6 migrations) |
+| Customer portal (lookup / reschedule / cancel) | ✅ DB-backed |
+| Admin dashboard (list / confirm / cancel / collect-balance) | ✅ DB-backed + audit trail |
+| Admin auth (NextAuth v5 + magic-link) | ✅ Email allowlist, JWT sessions |
+| Service catalog | ✅ DB-backed, editable at `/admin/services` |
+| 24h appointment reminders | ✅ Vercel cron, daily 16:00 UTC |
+| Booking event audit trail | ✅ Append-only `booking_events` table |
+| Vercel deployment | ✅ Linked to `mrokais-projects/beauty-booking` |
+| Custom domain | ⏳ Not configured — using `*.vercel.app` |
+| Square production webhook subscription | ⚠️ Verify against current canonical URL |
 
 ---
 
 ## Tech stack
 
-- **Next.js 16** (App Router, Turbopack) + **React 19**
+- **Next.js 16.2.6** (App Router, Turbopack) + **React 19.2.4**
 - **Drizzle ORM** + **postgres.js** → **Neon Postgres**
-- **Square Node SDK v44** (server — payments, payment links, webhooks)
+- **Square Node SDK v44** (server — payments, payment links, refunds, webhooks)
 - **Square Web Payments SDK** (browser — card tokenization)
-- Vanilla CSS (~1700 lines in `app/globals.css`, hand-rolled, no Tailwind runtime despite Tailwind being in devDeps)
-- JavaScript, not TypeScript (TS installed as devDep but app code is `.js`)
+- **NextAuth v5 (beta.31)** + `@auth/drizzle-adapter` + Nodemailer magic-link
+- Vanilla CSS (~1700 lines in `app/globals.css`, no Tailwind runtime despite Tailwind in devDeps)
+- JavaScript, not TypeScript (TS installed as devDep, app code is `.js`)
 
 ---
 
@@ -39,9 +44,12 @@ Mobile-first booking app for **Ashley Lacy Esthetics** (esthetician practice), b
 
 - **Local:** `~/Desktop/Ashley Lacy/beauty-booking`
 - **GitHub:** https://github.com/m-rokai/beautybook (branch `main`)
-- **Neon:** Connection strings in `.env.local`. Project hosted in `us-east-1`, Neon endpoint `ep-dry-fog-amk6sdpn`.
-- **Square:** Sandbox app under Ashley's account. App ID `sandbox-sq0idb-730IJbjdJnTpznvLcTUI0w`, location `LYY2KY7VQN525` ("Default Test Account").
-- **Vercel:** Deployment in progress as of this doc.
+- **Vercel project:** `mrokais-projects/beauty-booking` (project id `prj_ca3aYYofDsygY6IGAt838BSZguUL`)
+- **Vercel default URL:** https://beauty-booking-three.vercel.app
+- **Neon:** Connection strings in `.env.local`. Hosted in `us-east-1`, endpoint `ep-dry-fog-amk6sdpn`.
+- **Square:** **Production** environment. Configured per `SQUARE_ENVIRONMENT=production`.
+
+> Note: there are also stale Vercel projects `beautybook` and `beautybook-za5x` in the team. The repo is linked to `beauty-booking`. Consider deleting the other two to avoid confusion.
 
 ---
 
@@ -52,13 +60,13 @@ cd ~/Desktop/Ashley\ Lacy/beauty-booking
 npm run dev      # → http://localhost:3100
 ```
 
-**Dev server runs on port 3100**, not 3000 — the user's 3000 is occupied by another project. See `package.json` → `"dev": "next dev -p 3100"`.
+**Dev server runs on port 3100**, not 3000 — `package.json` → `"dev": "next dev -p 3100"`.
 
 ---
 
 ## Environment variables
 
-All secrets live in `.env.local` (gitignored). Template in `.env.example`.
+All secrets live in `.env.local` locally and Vercel project settings in production.
 
 | Var | Purpose |
 |---|---|
@@ -68,72 +76,120 @@ All secrets live in `.env.local` (gitignored). Template in `.env.example`.
 | `SQUARE_ACCESS_TOKEN` | Square server API token |
 | `NEXT_PUBLIC_SQUARE_APPLICATION_ID` | Browser Web Payments SDK |
 | `NEXT_PUBLIC_SQUARE_LOCATION_ID` | Browser Web Payments SDK |
-| `SQUARE_WEBHOOK_SIGNATURE_KEY` | Optional — required only once a webhook subscription exists |
-| `NEXT_PUBLIC_APP_URL` | Currently `http://localhost:3100`, must become the Vercel URL after deploy |
-| `RESEND_API_KEY` | Future — email integration not wired yet |
+| `SQUARE_WEBHOOK_SIGNATURE_KEY` | HMAC verification on `/api/webhooks/square` |
+| `NEXT_PUBLIC_APP_URL` | Used by webhook handler for `notificationUrl` and email links — must match the URL Square posts to |
+| `AUTH_SECRET` | NextAuth JWT signing |
+| `AUTH_ALLOWED_ADMIN_EMAILS` | Comma-separated emails or `@domain.com` suffixes |
+| `EMAIL_SERVER_HOST` / `_PORT` / `_USER` / `_PASSWORD` / `EMAIL_FROM` | SMTP (Gmail) for magic-link + customer notifications |
+| `CRON_SECRET` | Authorizes `/api/cron/reminders` (set by Vercel cron) |
+
+Sync local from prod with `vercel env pull .env.local` if needed.
 
 ---
 
 ## Data model
 
-**Single table: `bookings`** (27 columns, 5 indexes). Service catalog and add-ons remain hardcoded in `lib/demo-data.js` — only dynamic records live in Postgres.
+**Three tables** (plus Auth.js tables `user`, `account`, `session`, `verificationToken`):
 
-Key columns:
+### `bookings` (27 columns)
 - `code` — unique `AL-XXXXX` reference shown to customers
-- `serviceId` / `serviceName` / `addOnNames` (text[])
-- `scheduledDate` / `scheduledTimeId` / `scheduledTimeLabel`
-- `customerName` / `customerEmail` / `customerPhone` / `customerNotes`
-- `status` — `confirmed` | `pending` | `cancelled` | `rescheduled` | `completed`
-- `paymentIntent` — `deposit` | `full`
-- `totalCents` / `depositCents` / `remainingCents` — all money in cents
-- `balanceStatus` — `paid` | `unpaid` | `link_sent`
-- `depositSquarePaymentId` / `depositSquareStatus` / `depositSquareReceiptUrl`
-- `balanceLinkId` / `balanceLinkUrl` / `balanceOrderId` / `balanceSquarePaymentId`
-- `createdAt` / `updatedAt` (timestamptz)
+- `serviceId` (legacy single-service) + `serviceIds` (text[], multi-service)
+- `serviceName`, `addOnNames` (text[])
+- `scheduledDate`, `scheduledTimeId`, `scheduledTimeLabel`
+- `customerName`, `customerEmail`, `customerPhone`, `customerNotes`
+- `status` — `confirmed | pending | cancelled | rescheduled | completed`
+- `paymentIntent` — `deposit | full`
+- `totalCents`, `depositCents`, `remainingCents` (all money in cents)
+- `balanceStatus` — `paid | unpaid | link_sent`
+- `depositSquarePaymentId`, `depositSquareStatus`, `depositSquareReceiptUrl`
+- `balanceLinkId`, `balanceLinkUrl`, `balanceOrderId`, `balanceSquarePaymentId`
+- `refundStatus` — `null | pending | completed | failed`
+- `refundCents`, `refundedAt`, `refundDepositSquareId`, `refundBalanceSquareId`, `refundError`
+- `reminderSentAt`
+- `createdAt`, `updatedAt`
 
-Schema definition: `lib/db/schema.js`.
-Migration SQL: `drizzle/0000_icy_shaman.sql` (committed).
+### `booking_events` (audit trail)
+- Append-only log of every material mutation (created, status_changed, services_edited, balance_link_sent, balance_paid, refund_completed, refund_failed, reminder_sent, confirmation_sent, update_notified, cancelled).
+- Columns: `bookingId`, `bookingCode`, `eventType`, `summary`, `payload` (jsonb), `actor` (`admin:<email>` | `customer` | `system` | `webhook`), `createdAt`.
+
+### `services` (editable catalog)
+- 35 rows seeded by migration `0004` (facials, waxing, massage, lash, etc.)
+- `id`, `name`, `description`, `categoryId` (`skin-care | waxing | self-care`)
+- `durationMinutes`, `priceCents`, `depositCents` (override), `cancellationCents` (override)
+- `isActive`, `sortOrder`
+
+Schema: `lib/db/schema.js`. Auth schema: `lib/db/auth-schema.js`. Migrations: `drizzle/0000_*.sql` through `drizzle/0005_*.sql`.
 
 ---
 
 ## Architecture highlights
 
 ### 1. Atomic payment + booking insert
-`POST /api/payments` handles both the Square charge and the DB insert in a single request. The **server** generates the booking code (no collisions), charges Square, then inserts the row. If the Square charge fails, no booking is written. If the Square charge succeeds but the DB write fails, the payment ID is surfaced in the error response so it can be reconciled manually. This was a deliberate fix to the earlier bug where the booking was saved client-side *after* the charge.
+`POST /api/payments` charges Square and inserts the booking in one request. Server generates the booking code. If Square fails → no booking. If Square succeeds but DB fails → payment ID surfaced in error response for manual reconciliation.
 
 ### 2. Balance collection flow
 1. Admin clicks **Send payment link** in `/admin`
-2. Frontend calls `POST /api/bookings/collect-balance` with just `{ bookingCode }`
-3. Server looks up booking, calls `client.checkout.paymentLinks.create` with the remaining amount
-4. Link URL persisted to `balanceLinkUrl`, `balanceStatus` → `link_sent`
-5. Admin copies link and texts/emails it to the customer
-6. Customer pays at `sandbox.square.link/u/...`
-7. Square fires webhook → handler matches via `orderId` / `referenceId` / `note` → flips `balanceStatus` to `paid`
+2. Frontend calls `POST /api/bookings/collect-balance` with `{ bookingCode }`
+3. Server creates Square Payment Link with the remaining amount
+4. `balanceLinkUrl` persisted, `balanceStatus` → `link_sent`
+5. Admin shares link with customer
+6. Customer pays at `square.link/u/...`
+7. Square fires `payment.updated` webhook → handler matches via `orderId` / `referenceId` / `note` → `balanceStatus` → `paid`
 
-### 3. Webhook matching rules (order of confidence)
-1. `payment.reference_id` matches `bookings.code` → deposit charge (set at create time)
-2. `payment.order_id` matches `bookings.balanceOrderId` → balance link payment
-3. `payment.note` matches `bookings.code` → fallback for balance payments
+### 3. Admin cancel + refund flow
+`POST /api/bookings/:code/cancel` with `{ refund: 'deposit' | 'full' | 'none' }`:
+1. Reject if already cancelled (idempotent guard)
+2. Call `client.refunds.refundPayment` for each charge
+3. Write `refundStatus` (`pending`/`completed`), `refundCents`, refund Square IDs, `status='cancelled'`
+4. Send cancellation email + log audit event
+5. If Square returns PENDING, the webhook flips to COMPLETED later
 
-### 4. Client/server boundary in `lib/`
-- `lib/db/*` + `lib/bookings-db.js` + `lib/square.js` → **server-only** (never import from client components)
+### 4. Refund webhook
+`refund.created` / `refund.updated` events:
+1. Match booking by `refund.id` (against `refundDepositSquareId` / `refundBalanceSquareId`)
+2. Fallback to `refund.payment_id` (covers refunds initiated externally from Square dashboard)
+3. Map status: `COMPLETED → completed`, `PENDING → pending`, `FAILED|REJECTED → failed`
+4. External refunds (no prior admin cancel) also flip `status` → `cancelled`
+5. Idempotent — does not downgrade `completed` or rewrite identical state
+
+### 5. Magic-link admin auth
+- NextAuth v5 + Drizzle adapter + Nodemailer (Gmail SMTP)
+- `signIn` callback enforces `AUTH_ALLOWED_ADMIN_EMAILS` (exact email or `@domain.com` suffix)
+- `isAdmin` flag computed in JWT callback, checked in `authorized()` for `/admin/*`
+- JWT sessions (not session table), 30-day lifetime
+
+### 6. Reminder cron
+`/api/cron/reminders` runs daily at 16:00 UTC (`vercel.json`). Finds confirmed bookings 24h out without `reminderSentAt`, emails them, writes `reminderSentAt` + audit event. Authorized via `CRON_SECRET`.
+
+### 7. Client/server boundary in `lib/`
+- `lib/db/*` + `lib/bookings-db.js` + `lib/square.js` + `lib/services-db.js` + `lib/booking-events.js` + `lib/mailer.js` + `lib/auth-helpers.js` → **server-only** (never import from client components)
 - `lib/booking-store.js` → **client-safe** thin fetch wrappers + pure date helpers
-- `lib/demo-data.js` → **shared**, pure data
+- `lib/demo-data.js` → **shared**, pure data (categories + add-ons only; services live in DB)
 
 ---
 
 ## API surface
 
-| Route | Method | Purpose |
-|---|---|---|
-| `/api/payments` | POST | Atomic Square charge + booking insert |
-| `/api/bookings` | GET | List all bookings (admin) |
-| `/api/bookings/[code]` | GET | Find by code (portal + admin) |
-| `/api/bookings/[code]` | PATCH | Update status/reschedule/cancel — whitelisted fields only |
-| `/api/bookings/availability` | GET | Taken time slots for `?date=YYYY-MM-DD` |
-| `/api/bookings/collect-balance` | POST | Create Square Payment Link, persist fields |
-| `/api/webhooks/square` | POST | HMAC-verified, auto-updates booking state |
-| `/api/platform-status` | GET | Readiness check for env vars |
+| Route | Method | Auth | Purpose |
+|---|---|---|---|
+| `/api/payments` | POST | public | Atomic Square charge + booking insert |
+| `/api/bookings` | GET | admin | List all bookings |
+| `/api/bookings/[code]` | GET | public | Find by code (portal + admin) |
+| `/api/bookings/[code]` | PATCH | public¹ | Update status/reschedule — whitelisted fields |
+| `/api/bookings/[code]/cancel` | POST | admin | Atomic refund + cancel |
+| `/api/bookings/[code]/events` | GET | admin | Audit log |
+| `/api/bookings/[code]/services` | GET/PATCH | admin | Edit services on existing booking |
+| `/api/bookings/availability` | GET | public | Taken slots for `?date=YYYY-MM-DD` |
+| `/api/bookings/collect-balance` | POST | admin | Create Square Payment Link |
+| `/api/admin/services` | GET/POST | admin | Service catalog list + create |
+| `/api/admin/services/[id]` | PATCH | admin | Edit service |
+| `/api/auth/[...nextauth]` | * | NextAuth | Magic-link sign-in handlers |
+| `/api/webhooks/square` | POST | HMAC | Payment + refund + dispute events |
+| `/api/cron/reminders` | GET | CRON_SECRET | 24h reminder cron |
+| `/api/platform-status` | GET | public | Env readiness check |
+| `/api/qr` | GET | public | QR code generator |
+
+¹ Customer portal uses code as bearer — anyone with a booking code can read/update that booking. Acceptable for MVP; revisit if abuse appears.
 
 ---
 
@@ -142,96 +198,106 @@ Migration SQL: `drizzle/0000_icy_shaman.sql` (committed).
 ```
 lib/
 ├── db/
-│   ├── index.js         # Drizzle client (cached across HMR)
-│   └── schema.js        # bookings table definition
-├── bookings-db.js       # Server-only queries
-├── booking-store.js     # Client-side async fetch wrappers + pure date helpers
-├── square.js            # SquareClient factory + BigInt-safe JSON serializer
-├── demo-data.js         # Static service catalog, add-ons, policies
-└── platform.js          # Env readiness check
+│   ├── index.js               # Drizzle client (cached across HMR)
+│   ├── schema.js              # bookings + booking_events + services
+│   └── auth-schema.js         # Auth.js tables
+├── bookings-db.js             # Server-only queries (incl. findBookingByPaymentId/RefundId)
+├── services-db.js             # Service catalog CRUD
+├── booking-store.js           # Client-side fetch wrappers + date helpers
+├── booking-events.js          # Audit log writer
+├── square.js                  # SquareClient factory + BigInt-safe JSON serializer
+├── mailer.js                  # Nodemailer + branded templates
+├── auth-helpers.js            # getSession()
+├── demo-data.js               # Categories + add-ons (services moved to DB)
+└── platform.js                # Env readiness check
 
 app/
 ├── api/
+│   ├── admin/services/        # Service catalog CRUD
+│   ├── auth/[...nextauth]/    # Auth.js handlers
 │   ├── bookings/
-│   │   ├── route.js                  # GET list
+│   │   ├── route.js                  # GET list (admin)
 │   │   ├── [code]/route.js           # GET + PATCH
-│   │   ├── availability/route.js     # GET ?date=
+│   │   ├── [code]/cancel/route.js    # Atomic refund + cancel
+│   │   ├── [code]/events/route.js
+│   │   ├── [code]/services/route.js
+│   │   ├── availability/route.js
 │   │   └── collect-balance/route.js
-│   ├── payments/route.js             # Charge + insert atomically
-│   ├── webhooks/square/route.js      # HMAC-verified handler
-│   └── platform-status/route.js
-├── admin/page.js
+│   ├── cron/reminders/route.js
+│   ├── payments/route.js
+│   ├── webhooks/square/route.js      # HMAC + payment + refund + dispute handler
+│   ├── platform-status/route.js
+│   └── qr/route.js
+├── admin/
+│   ├── page.js                       # Dashboard (auth-gated)
+│   ├── login/page.js + verify/
+│   └── services/page.js
 ├── booking/page.js
 ├── portal/page.js
-├── page.js                           # Marketing home
+├── page.js                           # Marketing home + Instagram embed
 ├── layout.js
 └── globals.css                       # ~1700 lines of hand-rolled CSS
 
 components/
-├── booking/BookingExperience.js      # Multi-step form + Square Web Payments SDK card mount
-├── admin/AdminDashboard.js           # Appointments board + collect-balance UI
-├── portal/CustomerPortal.js          # Code lookup + reschedule/cancel
+├── booking/BookingExperience.js      # Multi-step wizard + Square Web Payments SDK
+├── admin/AdminDashboard.js           # Appointments + collect-balance + cancel + audit log
+├── admin/ServiceEditor.js
+├── portal/CustomerPortal.js
 └── SiteHeader.js
 
 drizzle/
-├── 0000_icy_shaman.sql               # Initial migration
-└── meta/                             # Drizzle metadata
-drizzle.config.js                     # Drizzle Kit config (loads .env.local)
+├── 0000_icy_shaman.sql               # Initial bookings table
+├── 0001_auth_tables.sql              # Auth.js tables
+├── 0002_add_refund_fields.sql
+├── 0003_add_service_ids.sql          # Multi-service
+├── 0004_add_services_table.sql       # 35-row service catalog seed
+├── 0005_add_booking_events_and_reminder.sql
+└── meta/
+drizzle.config.js
+auth.js                                # NextAuth v5 config
+vercel.json                            # Reminder cron schedule
 ```
 
 ---
 
 ## Known gotchas (read these before debugging anything)
 
-1. **Dev port is 3100**, not 3000. Remember this when setting up ngrok tunnels or testing webhooks locally.
-2. **Square sandbox rejects `@example.com` emails** — it's RFC-reserved. The `collect-balance` route auto-falls back to no `prePopulatedData` if Square returns an email-related error. Real emails work fine.
-3. **Square Web Payments SDK has TWO CDNs.** Sandbox app IDs (`sandbox-*`) must load `https://sandbox.web.squarecdn.com/v1/square.js`. Production app IDs load `https://web.squarecdn.com/v1/square.js`. Detection is based on the app ID prefix in `BookingExperience.js`. If you load the wrong one the SDK errors with *"Web Payments SDK was initialized with an application ID created in sandbox however you are currently using production"*.
-4. **Square SDK v44 is a rewrite.** Current API shapes:
+1. **Dev port is 3100**, not 3000.
+2. **Square sandbox rejects `@example.com` emails** — RFC-reserved. `collect-balance` auto-falls back to no `prePopulatedData` on email errors. Real emails work fine.
+3. **Square Web Payments SDK has TWO CDNs.** Sandbox app IDs (`sandbox-*`) → `sandbox.web.squarecdn.com`. Production → `web.squarecdn.com`. Detected in `BookingExperience.js`.
+4. **Square SDK v44 API shapes:**
    - `client.payments.create({ sourceId, idempotencyKey, amountMoney: { amount: BigInt(cents), currency: 'USD' }, locationId, referenceId, note, buyerEmailAddress })`
    - `client.checkout.paymentLinks.create({ idempotencyKey, description, quickPay: { name, priceMoney, locationId }, paymentNote, prePopulatedData })`
-   - `client.locations.list()`
+   - `client.refunds.refundPayment({ idempotencyKey, paymentId, amountMoney, reason })`
    - `WebhooksHelper.verifySignature({ requestBody, signatureHeader, signatureKey, notificationUrl })`
-   - **Money amounts are `BigInt`**, not `number`. Use `BigInt(cents)` and `serializeSquare()` from `lib/square.js` before returning JSON.
-5. **Drizzle Kit `push` is interactive.** Use `drizzle-kit generate` + `drizzle-orm/postgres-js/migrator` for non-TTY environments (see commands below). The existing migration in `drizzle/` was applied this way.
-6. **Neon free tier is 10 projects** (vs Supabase's 2). That's why we picked Neon — the user was at Supabase's project limit from other work (Stackt, SpaceSync).
-7. **Admin route is public.** `/admin` has no auth gate. Do not deploy to production without adding Clerk or a passcode check.
-8. **Neon DB credentials in `.env.local` were shared in LLM chat during sandbox setup.** Rotate before production via Neon console → Settings → Reset password.
+   - **Money amounts are `BigInt`**. Use `BigInt(cents)` and `serializeSquare()` from `lib/square.js` before returning JSON.
+5. **Webhook signature uses `NEXT_PUBLIC_APP_URL`** — if this drifts from the URL Square actually posts to, signature verification fails. Re-check after switching custom domains.
+6. **Drizzle Kit `push` is interactive.** Use `drizzle-kit generate` + the migrator snippet below for non-TTY.
+7. **Neon free tier is 10 projects.** Reset DB password from Neon console → Settings if creds leak.
+8. **Three Vercel projects exist** (`beauty-booking`, `beautybook`, `beautybook-za5x`). Repo is linked to `beauty-booking`. Clean up the other two.
+9. **The Square card form must attach only while the Pay step is rendered.** Wizard steps are conditionally rendered, so `#al-card-container` doesn't exist until `currentStep === 4`. Attaching at mount throws `ElementNotFoundError` and permanently disables the Pay button (this shipped broken with the wizard refactor and was fixed 2026-07-01). The attach effect in `BookingExperience.js` is keyed on `currentStep` — keep it that way.
+10. **Vercel env vars on this project are Sensitive** — `vercel env pull` redacts them to empty strings. An empty value in a pulled file does NOT mean the variable is empty in production. To check webhook URL config at runtime: an unsigned POST to `/api/webhooks/square` returns 401 (configured) vs 400 (missing config).
+11. **Webhook `notificationUrl` falls back to the canonical URL** via `lib/site.js` `SITE_URL` when `NEXT_PUBLIC_APP_URL` is unset — update `lib/site.js` if the domain ever changes.
 
 ---
 
-## Test credentials (Square sandbox)
+## Test credentials
 
-**Browser card form:**
-- Card: `4111 1111 1111 1111`
-- Expiry: any future date (`12/34` works)
-- CVV: `111`
-- ZIP: `94103`
+**Sandbox browser card form:**
+- Card: `4111 1111 1111 1111` · Exp: any future date · CVV: `111` · ZIP: `94103`
 
-**Server-side test nonce** (for curl / Node smoke tests):
+**Sandbox server nonce:**
 - `cnon:card-nonce-ok`
 
-**Existing test booking:** `AL-KE4HD` — has a deposit charged and a balance payment link generated. Check it's still there with `GET /api/bookings/AL-KE4HD`.
-
 ---
 
-## Pending / next steps (priority order)
+## Pending / next steps
 
-1. **⏳ Complete Vercel deployment** — user is mid-import at vercel.com/new. Needs env vars pasted from `.env.local`.
-2. **Update `NEXT_PUBLIC_APP_URL`** on Vercel to the real deployed URL and redeploy.
-3. **Wire real Square webhook subscription** at Square Developer Dashboard → point at `https://<vercel-url>/api/webhooks/square` → subscribe to `payment.created`, `payment.updated`, `refund.created`, `refund.updated`, `dispute.created`, `dispute.state.updated` → paste signature key into Vercel env (`SQUARE_WEBHOOK_SIGNATURE_KEY`) → redeploy. After this, balance payments auto-mark paid with zero admin action.
-4. **Admin auth.** Clerk (10k MAU free tier) or a simple passcode env var gate. Required before production.
-5. **Refund on cancel.** The admin Cancel button currently just flips status. Should call `client.refunds.refundPayment` for the deposit.
-6. **Resend integration** for booking confirmation / 24h reminder / aftercare emails.
-7. **Rotate credentials** (Neon + Square) before production — sandbox creds were shared in LLM chat.
-8. **Services in DB** — currently hardcoded. Admin-editable service menu is a future win, not an MVP blocker.
-
----
-
-## Git history (relevant)
-
-- `d99d921e` — Build Muze Office beauty booking MVP (initial scaffold, pre-this-work)
-- `5ad77dd7` — Add Square payments and balance collection
-- `fe67546a` — Migrate from localStorage to Neon Postgres via Drizzle (latest)
+1. **Configure custom domain.** Currently shipping at `beauty-booking-three.vercel.app`. Pick a subdomain (e.g. `book.ashleylacy.com` or `ashley.muzeoffice.com`).
+2. **Wire Square production webhook subscription** to `<canonical URL>/api/webhooks/square` with events: `payment.created`, `payment.updated`, `refund.created`, `refund.updated`, `dispute.created`, `dispute.state.updated`. Set the signature key in Vercel as `SQUARE_WEBHOOK_SIGNATURE_KEY`. Verify with a `$0.01` test payment.
+3. **Delete stale Vercel projects** `beautybook` and `beautybook-za5x` (the linked one is `beauty-booking`).
+4. **Add `/admin/services` link to admin nav** (currently reachable only by typing the URL).
+5. **Disable Vercel SSO** on production once you want public access (currently every preview + prod URL is protected by Vercel auth).
 
 ---
 
@@ -240,7 +306,7 @@ drizzle.config.js                     # Drizzle Kit config (loads .env.local)
 ### Dev
 ```bash
 npm run dev                                     # → localhost:3100
-npx next build                                  # Validate build
+npm run build                                   # Validate build
 ```
 
 ### Generate a new Drizzle migration after editing schema
@@ -267,32 +333,20 @@ node --env-file=.env.local -e "
 node --env-file=.env.local -e "
   import('postgres').then(async ({ default: pg }) => {
     const sql = pg(process.env.DATABASE_URL, { prepare: false });
-    const rows = await sql\`select code, customer_name, service_name, scheduled_date, balance_status from bookings order by created_at desc limit 10\`;
+    const rows = await sql\`select code, customer_name, service_name, scheduled_date, status, balance_status, refund_status from bookings order by created_at desc limit 10\`;
     console.table(rows);
     await sql.end();
   });
 "
 ```
 
-### Smoke test the whole payment flow from terminal
+### Sync local env from Vercel
 ```bash
-curl -s -X POST http://localhost:3100/api/payments \
-  -H "Content-Type: application/json" \
-  -d '{
-    "sourceId": "cnon:card-nonce-ok",
-    "booking": {
-      "serviceId": "customized-facial",
-      "serviceName": "Customized Facial",
-      "addOnNames": [],
-      "scheduledDate": "2026-05-01",
-      "scheduledTimeId": "1030",
-      "scheduledTimeLabel": "10:30 AM",
-      "customerName": "Smoke Test",
-      "customerEmail": "smoke@test.com",
-      "paymentIntent": "deposit",
-      "totalCents": 7500,
-      "depositCents": 2500,
-      "remainingCents": 5000
-    }
-  }'
+npx vercel env pull .env.local
+```
+
+### Deploy
+```bash
+npx vercel --prod        # production
+npx vercel               # preview
 ```
