@@ -4,6 +4,39 @@ import { addOns, cancellationPolicy } from '../lib/demo-data';
 import { listActiveServiceCategories } from '../lib/services-db';
 import { SiteHeader } from '../components/SiteHeader';
 import { INSTAGRAM_HANDLE, INSTAGRAM_URL, GROUPON_URL } from '../lib/instagram';
+import { SITE_URL, SITE_NAME, SITE_DESCRIPTION, BUSINESS_ADDRESS } from '../lib/site';
+
+export const metadata = {
+  alternates: { canonical: '/' },
+};
+
+// Structured data so Google can show the business card (hours, address,
+// booking link) directly in search results.
+const businessJsonLd = {
+  '@context': 'https://schema.org',
+  '@type': 'BeautySalon',
+  name: SITE_NAME,
+  description: SITE_DESCRIPTION,
+  url: SITE_URL,
+  address: {
+    '@type': 'PostalAddress',
+    ...BUSINESS_ADDRESS,
+  },
+  containedInPlace: {
+    '@type': 'Place',
+    name: 'Muze Office',
+    url: 'https://muzeoffice.com',
+  },
+  openingHoursSpecification: {
+    '@type': 'OpeningHoursSpecification',
+    dayOfWeek: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'],
+  },
+  sameAs: [INSTAGRAM_URL],
+  potentialAction: {
+    '@type': 'ReserveAction',
+    target: `${SITE_URL}/booking`,
+  },
+};
 
 const features = [
   {
@@ -18,7 +51,7 @@ const features = [
   },
   {
     title: 'Secure Payments',
-    body: 'Pay your deposit or full amount securely through Stripe.',
+    body: 'Pay your deposit or full amount securely through Square.',
     Icon: CreditCard,
   },
   {
@@ -32,6 +65,13 @@ export default async function HomePage() {
   const serviceCategories = await listActiveServiceCategories();
   return (
     <main className="page-shell">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          // Static, trusted data only; escape "<" per the Next.js JSON-LD guidance.
+          __html: JSON.stringify(businessJsonLd).replace(/</g, '\\u003c'),
+        }}
+      />
       <SiteHeader />
 
       <section className="hero">

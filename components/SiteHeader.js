@@ -21,9 +21,6 @@ export function SiteHeader() {
         <Link className="nav-link" href="/portal">
           My Appointment
         </Link>
-        <Link className="nav-link" href="/admin">
-          Dashboard
-        </Link>
       </nav>
     </header>
   );

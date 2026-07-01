@@ -3,6 +3,13 @@ import { SiteHeader } from '../../components/SiteHeader';
 import { addOns, bookingPolicies } from '../../lib/demo-data';
 import { listActiveServiceCategories } from '../../lib/services-db';
 
+export const metadata = {
+  title: 'Book an appointment',
+  description:
+    'Choose your treatment, pick a time, and secure your appointment with a deposit — all in a few taps.',
+  alternates: { canonical: '/booking' },
+};
+
 export default async function BookingPage() {
   const serviceCategories = await listActiveServiceCategories();
   return (
